@@ -1,30 +1,8 @@
-// app/components/Header.tsx
 'use client'
 
 import { useEffect, useState } from 'react'
-import Link from 'next/link'
-import { usePathname, useRouter } from 'next/navigation'
+import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
-
-function NavLink({ href, children }: { href: string; children: React.ReactNode }) {
-  const pathname = usePathname()
-  const active = pathname === href || (href !== '/' && pathname.startsWith(href))
-  return (
-    <Link
-      href={href}
-      style={{
-        padding: '6px 10px',
-        borderRadius: 8,
-        textDecoration: 'none',
-        fontWeight: 600,
-        border: active ? '1px solid #ddd' : '1px solid transparent',
-        opacity: active ? 1 : 0.8,
-      }}
-    >
-      {children}
-    </Link>
-  )
-}
 
 export default function Header() {
   const router = useRouter()
@@ -32,17 +10,12 @@ export default function Header() {
 
   useEffect(() => {
     let cancelled = false
-
-    const init = async () => {
-      const { data } = await supabase.auth.getSession()
+    supabase.auth.getSession().then(({ data }) => {
       if (!cancelled) setEmail(data.session?.user.email ?? null)
-    }
-    init()
-
+    })
     const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
       setEmail(session?.user.email ?? null)
     })
-
     return () => {
       cancelled = true
       sub.subscription.unsubscribe()
@@ -55,66 +28,78 @@ export default function Header() {
   }
 
   return (
-    <header
-      style={{
-        position: 'sticky',
-        top: 0,
-        zIndex: 10,
-        backdropFilter: 'blur(6px)',
-        background: 'rgba(255,255,255,0.8)',
-        borderBottom: '1px solid #eee',
-      }}
-    >
-      <div
-        style={{
-          maxWidth: 960,
-          margin: '0 auto',
-          padding: '10px 16px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: 12,
-          fontFamily: 'ui-sans-serif, system-ui',
-        }}
-      >
-        <nav style={{ display: 'flex', gap: 10 }}>
-          <NavLink href="/auth">Auth</NavLink>
-          <NavLink href="/notes">Notes</NavLink>
-        </nav>
+    <header style={{
+      position: 'sticky',
+      top: 0,
+      zIndex: 50,
+      backdropFilter: 'blur(20px)',
+      WebkitBackdropFilter: 'blur(20px)',
+      background: 'rgba(7, 7, 26, 0.85)',
+      borderBottom: '1px solid rgba(124, 58, 237, 0.15)',
+    }}>
+      <div style={{
+        maxWidth: 1100,
+        margin: '0 auto',
+        padding: '0 24px',
+        height: 56,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+      }}>
+        {/* Logo */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{
+            width: 28, height: 28,
+            background: 'linear-gradient(135deg, #7c3aed, #a78bfa)',
+            borderRadius: 8,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 14, fontWeight: 900, color: '#fff',
+          }}>M</div>
+          <span style={{
+            fontSize: 16, fontWeight: 800, letterSpacing: '-0.3px',
+            background: 'linear-gradient(135deg, #fff 0%, #a78bfa 100%)',
+            WebkitBackgroundClip: 'text',
+            WebkitTextFillColor: 'transparent',
+          }}>MASLO</span>
+        </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ fontSize: 14, opacity: 0.75 }}>
-            {email ? `Signed in as ${email}` : 'Not signed in'}
-          </span>
+        {/* Right */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           {email ? (
+            <>
+              <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)' }}>{email}</span>
+              <button
+                onClick={signOut}
+                style={{
+                  padding: '6px 14px',
+                  borderRadius: 8,
+                  border: '1px solid rgba(124, 58, 237, 0.3)',
+                  background: 'rgba(124, 58, 237, 0.1)',
+                  color: '#a78bfa',
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                Sign Out
+              </button>
+            </>
+          ) : (
             <button
-              onClick={signOut}
+              onClick={() => router.push('/auth')}
               style={{
-                padding: '6px 10px',
+                padding: '6px 14px',
                 borderRadius: 8,
-                border: '1px solid #ddd',
-                background: 'white',
+                border: 'none',
+                background: 'linear-gradient(135deg, #7c3aed, #6d28d9)',
+                color: '#fff',
+                fontSize: 12,
                 fontWeight: 600,
                 cursor: 'pointer',
               }}
             >
-              Sign Out
-            </button>
-          ) : (
-            <Link
-              href="/auth"
-              style={{
-                padding: '6px 10px',
-                borderRadius: 8,
-                border: 'none',
-                background: '#7c3aed',
-                color: 'white',
-                fontWeight: 600,
-                textDecoration: 'none',
-              }}
-            >
               Sign In
-            </Link>
+            </button>
           )}
         </div>
       </div>

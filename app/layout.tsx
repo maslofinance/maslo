@@ -1,21 +1,18 @@
-// app/layout.tsx
 import type { Metadata } from 'next'
-import Header from './components/header'   // <— add this
-// If you already import global styles (e.g. './globals.css'), keep that import too.
+import './globals.css'
+import Header from './components/Header'
 
 export const metadata: Metadata = {
-  title: 'Maslo',
-  description: 'Auth + Notes + Realtime',
+  title: 'Maslo — Financial Fitness',
+  description: 'The gastric bypass of banking apps.',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body style={{ margin: 0 }}>
+      <body>
         <Header />
-        <div style={{ maxWidth: 960, margin: '0 auto', padding: '16px' }}>
-          {children}
-        </div>
+        {children}
       </body>
     </html>
   )
