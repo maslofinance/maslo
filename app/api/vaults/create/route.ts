@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
       income_frequency,
       budget_style,
       notification_tone,
-      onboarding_complete: onboarding_mode !== 'hybrid', // hybrid stays in learning mode
+      onboarding_complete: true, // all modes complete onboarding; hybrid learning mode tracked separately
       onboarding_step: 9,
     }).eq('id', user.id)
 
