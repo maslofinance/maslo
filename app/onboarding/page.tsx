@@ -594,27 +594,45 @@ export default function OnboardingPage() {
             ) : (
               <div style={{ marginBottom: 20 }}>
 
-                {/* Primary: manual entry */}
+                {/* Secondary: manual entry */}
                 <button
                   onClick={() => setStep(4)}
-                  style={{ ...S.btn, marginBottom: 16 }}
+                  style={{ ...S.btnSec, width: '100%', marginBottom: 12, padding: '12px 24px', textAlign: 'center' as const }}
                 >
                   ✏️ Enter My Numbers Manually
                 </button>
 
-                {/* Coming soon: bank link */}
-                <div style={{ ...S.card, padding: 16, opacity: 0.5 }}>
+                {/* Bank link — live */}
+                <button
+                  onClick={linkBankWithStripe}
+                  disabled={bankLinking}
+                  style={{
+                    ...S.card,
+                    padding: 16,
+                    width: '100%',
+                    textAlign: 'left' as const,
+                    cursor: bankLinking ? 'wait' : 'pointer',
+                    border: '1px solid rgba(124,58,237,0.35)',
+                    background: 'rgba(124,58,237,0.06)',
+                    opacity: bankLinking ? 0.7 : 1,
+                    transition: 'all 0.2s',
+                  }}
+                >
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <span style={{ fontSize: 16 }}>🔗</span>
-                      <span style={{ fontSize: 13, fontWeight: 700, color: '#f8f8ff' }}>Connect Bank Account</span>
+                      <span style={{ fontSize: 16 }}>{bankLinking ? '⏳' : '🔗'}</span>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: '#f8f8ff' }}>
+                        {bankLinking ? 'Connecting…' : 'Connect Bank Account'}
+                      </span>
                     </div>
-                    <span style={{ fontSize: 9, fontWeight: 800, color: '#a78bfa', background: 'rgba(124,58,237,0.2)', padding: '3px 7px', borderRadius: 4, letterSpacing: '0.05em' }}>COMING SOON</span>
+                    {!bankLinking && <span style={{ fontSize: 9, fontWeight: 800, color: '#10b981', background: 'rgba(16,185,129,0.12)', padding: '3px 7px', borderRadius: 4, letterSpacing: '0.05em' }}>RECOMMENDED</span>}
                   </div>
                   <p style={{ margin: 0, fontSize: 12, color: 'rgba(255,255,255,0.4)', lineHeight: 1.5 }}>
-                    Stripe Financial Connections activation pending. Once live, Maslo will auto-read 180 days of transactions and pre-fill everything below.
+                    {bankLinking
+                      ? 'Analyzing 180 days of transactions — this takes just a moment…'
+                      : 'Securely connect via Stripe. Maslo reads 180 days of history and pre-fills your entire budget automatically.'}
                   </p>
-                </div>
+                </button>
               </div>
             )}
 
