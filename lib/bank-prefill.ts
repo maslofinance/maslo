@@ -201,20 +201,29 @@ export function analyzeBankData(txs: RawFCTransaction[]): BankPrefillResult {
   }
 
   // ── Income ──────────────────────────────────────────────────────────────────
-  const credits = txs.filter(tx => tx.amount < 0 && Math.abs(tx.amount) > 500)
-  const incomeGroups = new Map<string, { amounts: number[]; dates: string[] }>()
+  const credits = txs.filter(tx => tx.amount < 0 && Math.abs(tx.amount) > 300)
+
+  // Pass 1: keyword-matched payroll/direct-deposit sources (high confidence)
+  const incomeGroups = new Map<string, { amounts: number[]; dates: string[]; keywordMatch: boolean }>()
   for (const tx of credits) {
-    if (matches(tx.description, PATTERNS.income)) {
-      const key = tx.description.slice(0, 20).toLowerCase()
-      if (!incomeGroups.has(key)) incomeGroups.set(key, { amounts: [], dates: [] })
-      const g = incomeGroups.get(key)!
-      g.amounts.push(Math.abs(tx.amount))
-      g.dates.push(tx.date)
-    }
+    const key = tx.description.slice(0, 24).toLowerCase().replace(/[^a-z0-9\s]/g, '').trim()
+    if (!incomeGroups.has(key)) incomeGroups.set(key, { amounts: [], dates: [], keywordMatch: false })
+    const g = incomeGroups.get(key)!
+    g.amounts.push(Math.abs(tx.amount))
+    g.dates.push(tx.date)
+    if (matches(tx.description, PATTERNS.income)) g.keywordMatch = true
   }
-  const bestIncome = [...incomeGroups.entries()]
+
+  // Pick the best recurring credit source: keyword matches first, then largest recurring
+  const candidates = [...incomeGroups.entries()]
     .filter(([, g]) => g.amounts.length >= 2)
-    .sort((a, b) => avgAmount(b[1].amounts) - avgAmount(a[1].amounts))[0]
+    .sort((a, b) => {
+      // keyword matches win; otherwise sort by avg amount descending
+      if (a[1].keywordMatch !== b[1].keywordMatch) return a[1].keywordMatch ? -1 : 1
+      return avgAmount(b[1].amounts) - avgAmount(a[1].amounts)
+    })
+
+  const bestIncome = candidates[0]
 
   if (bestIncome) {
     const [key, g] = bestIncome
@@ -222,10 +231,10 @@ export function analyzeBankData(txs: RawFCTransaction[]): BankPrefillResult {
     const perCheck  = avgAmount(g.amounts)
     const multipliers: Record<Freq, number> = { weekly: 52/12, biweekly: 26/12, semimonthly: 2, monthly: 1 }
     const monthly   = perCheck * multipliers[freq]
-    const confident = isConsistentAmount(g.amounts, 0.05) && g.amounts.length >= 3
+    const confident = isConsistentAmount(g.amounts, 0.08) && g.amounts.length >= 3
     result.income = {
       value:      String(Math.round(monthly)),
-      confidence: confident ? 'high' : 'medium',
+      confidence: (confident && g.keywordMatch) ? 'high' : 'medium',
       source:     `${key.trim()} · ${g.amounts.length} deposits avg $${Math.round(perCheck)}`,
       freq,
     }
