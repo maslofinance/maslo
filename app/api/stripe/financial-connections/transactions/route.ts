@@ -15,11 +15,27 @@ export async function GET(request: Request) {
       features: ['transactions'],
     })
 
-    // Pull up to 180 days of transactions
-    const transactions = await stripe.financialConnections.transactions.list({
-      account: accountId,
-      limit: 100,
-    })
+    // Pull all transactions from the last 180 days, paginating through all pages
+    const cutoff = Math.floor(Date.now() / 1000) - 180 * 24 * 60 * 60
+    const allTxs: any[] = []
+    let hasMore = true
+    let startingAfter: string | undefined = undefined
+
+    while (hasMore) {
+      const page: any = await stripe.financialConnections.transactions.list({
+        account: accountId,
+        limit: 100,
+        ...(startingAfter ? { starting_after: startingAfter } : {}),
+        transacted_at: { gte: cutoff },
+      })
+      allTxs.push(...page.data)
+      hasMore = page.has_more
+      if (page.has_more && page.data.length > 0) {
+        startingAfter = page.data[page.data.length - 1].id
+      } else {
+        hasMore = false
+      }
+    }
 
     // Also grab account details (balance, ownership)
     const account = await stripe.financialConnections.accounts.retrieve(accountId)
@@ -34,16 +50,15 @@ export async function GET(request: Request) {
         status: account.status,
         balance: account.balance,
       },
-      transactions: transactions.data.map((t) => ({
+      transactions: allTxs.map((t) => ({
         id: t.id,
         date: t.transacted_at,
-        amount: t.amount, // in cents, negative = debit
+        amount: t.amount,
         currency: t.currency,
         description: t.description,
         status: t.status,
-        category: t.livemode ? null : '(sandbox test data)',
       })),
-      has_more: transactions.has_more,
+      total: allTxs.length,
     })
   } catch (err: any) {
     console.error('Financial Connections transactions error:', err)
