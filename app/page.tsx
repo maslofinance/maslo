@@ -2,7 +2,14 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
+import { loadStripe } from '@stripe/stripe-js'
 import { supabase } from '@/lib/supabase'
+
+let stripePromise: ReturnType<typeof loadStripe> | null = null
+function getStripe() {
+  if (!stripePromise) stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!)
+  return stripePromise
+}
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -205,7 +212,9 @@ export default function DashboardPage() {
   const [vaults, setVaults] = useState<Vault[]>([])
   const [profile, setProfile] = useState<Profile | null>(null)
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([])
+  const [fcAccounts, setFcAccounts] = useState<{ name: string; current_balance: number | null; available_balance: number | null }[]>([])
   const [userEmail, setUserEmail] = useState('')
+  const [linkingMore, setLinkingMore] = useState(false)
 
   // ── Auth + data load ────────────────────────────────────────────
   useEffect(() => {
@@ -216,10 +225,11 @@ export default function DashboardPage() {
 
       const uid = session.user.id
 
-      const [profileRes, vaultsRes, accountsRes] = await Promise.all([
+      const [profileRes, vaultsRes, accountsRes, fcRes] = await Promise.all([
         supabase.from('profiles').select('email, monthly_income, budget_style, notification_tone, onboarding_complete, onboarding_step').eq('id', uid).single(),
         supabase.from('vaults').select('*').eq('user_id', uid).eq('is_active', true).order('priority'),
         supabase.from('bank_accounts').select('name, current_balance, available_balance').eq('user_id', uid).eq('is_active', true),
+        supabase.from('stripe_fc_accounts').select('name, current_balance, available_balance').eq('user_id', uid).eq('is_active', true),
       ])
 
       const p = profileRes.data
@@ -230,6 +240,7 @@ export default function DashboardPage() {
       setProfile(p)
       setVaults((vaultsRes.data ?? []) as Vault[])
       setBankAccounts((accountsRes.data ?? []) as BankAccount[])
+      setFcAccounts(fcRes.data ?? [])
       setChecking(false)
     })
   }, [router])
@@ -256,6 +267,40 @@ export default function DashboardPage() {
     finally { setResetting(false) }
   }, [router])
 
+  const handleLinkAnother = useCallback(async () => {
+    setLinkingMore(true)
+    try {
+      const { data } = await supabase.auth.getSession()
+      const token = data.session?.access_token
+      const uid = data.session?.user.id
+      const res = await fetch('/api/stripe/financial-connections/session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ userId: uid }),
+      })
+      const { client_secret, error: sessionError } = await res.json()
+      if (sessionError) throw new Error(sessionError)
+      const stripe = await getStripe()
+      if (!stripe) throw new Error('Stripe failed to load')
+      const result = await (stripe as any).collectFinancialConnectionsAccounts({ clientSecret: client_secret })
+      if (result.error) throw new Error(result.error.message)
+      if (!result.financialConnectionsSession?.accounts?.length) return
+      const accountId = result.financialConnectionsSession.accounts[0].id
+      await fetch('/api/stripe/financial-connections/save-account', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ userId: uid, accountId }),
+      })
+      // Refresh FC accounts
+      const { data: fresh } = await supabase.from('stripe_fc_accounts').select('name, current_balance, available_balance').eq('user_id', uid!).eq('is_active', true)
+      setFcAccounts(fresh ?? [])
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Failed to link account')
+    } finally {
+      setLinkingMore(false)
+    }
+  }, [])
+
   if (checking) return (
     <div style={{ minHeight: '100vh', background: '#07071a', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <div style={{ textAlign: 'center' }}>
@@ -267,7 +312,8 @@ export default function DashboardPage() {
   )
 
   // ── Computed stats ──────────────────────────────────────────────
-  const totalBalance = bankAccounts.reduce((s, a) => s + (a.current_balance ?? 0), 0)
+  const allLinkedAccounts = [...bankAccounts, ...fcAccounts]
+  const totalBalance = allLinkedAccounts.reduce((s, a) => s + (a.current_balance ?? 0), 0)
   const monthlyIncome = profile?.monthly_income ?? 0
   const vaultsByCategory = (cat: VaultCategory) => vaults.filter(v => v.category === cat)
   const debtVaults = vaultsByCategory('debt')
@@ -276,7 +322,8 @@ export default function DashboardPage() {
   const fundedCount = vaults.filter(v => v.current_balance >= v.target_amount).length
   const today = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }).toUpperCase()
 
-  const institutionName = bankAccounts.length > 0 ? 'Bank linked' : 'No bank linked'
+  const totalLinked = allLinkedAccounts.length
+  const institutionName = totalLinked > 0 ? `${totalLinked} account${totalLinked > 1 ? 's' : ''} linked` : 'No bank linked'
 
   return (
     <div style={{ minHeight: '100vh', background: '#07071a', paddingBottom: 80 }}>
@@ -295,15 +342,27 @@ export default function DashboardPage() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <div style={{
               display: 'flex', alignItems: 'center', gap: 7, padding: '8px 16px',
-              background: bankAccounts.length ? 'rgba(16,185,129,0.08)' : 'rgba(255,255,255,0.05)',
-              border: `1px solid ${bankAccounts.length ? 'rgba(16,185,129,0.2)' : 'rgba(255,255,255,0.1)'}`,
+              background: totalLinked ? 'rgba(16,185,129,0.08)' : 'rgba(255,255,255,0.05)',
+              border: `1px solid ${totalLinked ? 'rgba(16,185,129,0.2)' : 'rgba(255,255,255,0.1)'}`,
               borderRadius: 99,
             }}>
-              <div style={{ width: 7, height: 7, background: bankAccounts.length ? '#10b981' : 'rgba(255,255,255,0.3)', borderRadius: '50%', boxShadow: bankAccounts.length ? '0 0 8px #10b981' : 'none' }} />
-              <span style={{ fontSize: 12, fontWeight: 600, color: bankAccounts.length ? '#6ee7b7' : 'rgba(255,255,255,0.4)' }}>
+              <div style={{ width: 7, height: 7, background: totalLinked ? '#10b981' : 'rgba(255,255,255,0.3)', borderRadius: '50%', boxShadow: totalLinked ? '0 0 8px #10b981' : 'none' }} />
+              <span style={{ fontSize: 12, fontWeight: 600, color: totalLinked ? '#6ee7b7' : 'rgba(255,255,255,0.4)' }}>
                 {institutionName}
               </span>
             </div>
+            <button
+              onClick={handleLinkAnother} disabled={linkingMore}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px',
+                background: 'rgba(124,58,237,0.08)', border: '1px solid rgba(124,58,237,0.25)',
+                borderRadius: 99, cursor: linkingMore ? 'wait' : 'pointer',
+                fontSize: 11, fontWeight: 700, letterSpacing: '0.04em',
+                color: linkingMore ? 'rgba(196,181,253,0.4)' : '#c4b5fd',
+              }}
+            >
+              {linkingMore ? '⟳ Linking…' : '+ Link Account'}
+            </button>
             <button
               onClick={handleReset} disabled={resetting}
               style={{
@@ -333,9 +392,9 @@ export default function DashboardPage() {
                 TOTAL CASH BALANCE
               </p>
               <div style={{ fontSize: 48, fontWeight: 900, color: '#f8f8ff', letterSpacing: '-2px', lineHeight: 1 }}>
-                {bankAccounts.length > 0 ? fmt(totalBalance) : '—'}
+                {totalLinked > 0 ? fmt(totalBalance) : '—'}
               </div>
-              {bankAccounts.length === 0 && (
+              {totalLinked === 0 && (
                 <p style={{ margin: '8px 0 0', fontSize: 12, color: 'rgba(255,255,255,0.3)' }}>
                   Link a bank account to see your balance
                 </p>

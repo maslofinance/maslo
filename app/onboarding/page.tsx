@@ -292,6 +292,13 @@ export default function OnboardingPage() {
         applyPrefill(prefill)
       }
 
+      // Save linked account to Supabase so dashboard can show balance
+      await fetch('/api/stripe/financial-connections/save-account', {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify({ userId, accountId }),
+      })
+
       setBankLinked(true)
       next()
     } catch (e: unknown) {
@@ -957,10 +964,10 @@ export default function OnboardingPage() {
                     {homeOfficeDeduction > 0 && <div style={{ marginLeft: 'auto', fontSize: 12, fontWeight: 700, color: '#10b981' }}>−${homeOfficeDeduction.toFixed(0)}/mo</div>}
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                    <Field label="RENT (AUTO-FILLED)">
+                    <Field label={rent ? "RENT (FROM STEP 6)" : "RENT / MORTGAGE"}>
                       <div style={{ position: 'relative' }}>
                         <span style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: 'rgba(255,255,255,0.4)', fontSize: 14 }}>$</span>
-                        <input value={rent} readOnly style={{ ...S.input, paddingLeft: 28, opacity: 0.5 }} />
+                        <input value={rent} onChange={e => setRent(e.target.value)} placeholder="1,705" type="number" style={{ ...S.input, paddingLeft: 28 }} />
                       </div>
                     </Field>
                     <Field label="% USED FOR BUSINESS">
