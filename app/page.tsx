@@ -229,7 +229,7 @@ export default function DashboardPage() {
         supabase.from('profiles').select('email, monthly_income, budget_style, notification_tone, onboarding_complete, onboarding_step').eq('id', uid).single(),
         supabase.from('vaults').select('*').eq('user_id', uid).eq('is_active', true).order('priority'),
         supabase.from('bank_accounts').select('name, current_balance, available_balance').eq('user_id', uid).eq('is_active', true),
-        supabase.from('stripe_fc_accounts').select('name, current_balance, available_balance').eq('user_id', uid).eq('is_active', true),
+        (supabase as any).from('stripe_fc_accounts').select('name, current_balance, available_balance').eq('user_id', uid).eq('is_active', true),
       ])
 
       const p = profileRes.data
@@ -292,7 +292,7 @@ export default function DashboardPage() {
         body: JSON.stringify({ userId: uid, accountId }),
       })
       // Refresh FC accounts
-      const { data: fresh } = await supabase.from('stripe_fc_accounts').select('name, current_balance, available_balance').eq('user_id', uid!).eq('is_active', true)
+      const { data: fresh } = await (supabase as any).from('stripe_fc_accounts').select('name, current_balance, available_balance').eq('user_id', uid!).eq('is_active', true)
       setFcAccounts(fresh ?? [])
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Failed to link account')

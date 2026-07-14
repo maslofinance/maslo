@@ -57,6 +57,8 @@ export async function GET(request: Request) {
         currency: t.currency,
         description: t.description,
         status: t.status,
+        category: (t as any).category ?? null,
+        subcategory: (t as any).subcategory ?? null,
       })),
       total: allTxs.length,
     })

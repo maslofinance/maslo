@@ -118,6 +118,10 @@ export default function OnboardingPage() {
   const [bankLinking, setBankLinking] = useState(false)
   const [subscriptions, setSubscriptions] = useState<DetectedSubscription[]>([])
   const [linkedAccountId, setLinkedAccountId] = useState<string | null>(null)
+  const [bankFindings, setBankFindings] = useState<BankPrefillResult | null>(null)
+  const [bankConfirmed, setBankConfirmed] = useState(false)
+  // Editable overrides for confirmation screen
+  const [confirmEdits, setConfirmEdits] = useState<Record<string, string>>({})
 
   // Form state
   const [income, setIncome] = useState('')
@@ -181,26 +185,28 @@ export default function OnboardingPage() {
     ...(accessToken ? { 'Authorization': `Bearer ${accessToken}` } : {}),
   }
 
-  // ── Apply bank pre-fill ──────────────────────────────────────────
-  function applyPrefill(p: BankPrefillResult) {
+  // ── Apply confirmed bank findings → form state ───────────────────
+  function applyPrefill(p: BankPrefillResult, overrides: Record<string, string> = {}) {
     const detected: Record<string, DetectedField> = {}
 
     if (p.income) {
-      setIncome(p.income.value)
+      const val = overrides['income'] ?? p.income.value
+      setIncome(val)
       if (p.income.freq) setPayFreq(p.income.freq)
       detected['income'] = { confidence: p.income.confidence, source: p.income.source }
     }
 
     if (p.rent) {
-      setRent(p.rent.value)
+      const val = overrides['rent'] ?? p.rent.value
+      setRent(val)
       detected['rent'] = { confidence: p.rent.confidence, source: p.rent.source }
     }
 
     if (p.utilities.length > 0) {
-      setUtilityList(p.utilities.map(u => ({
+      setUtilityList(p.utilities.map((u, i) => ({
         id: crypto.randomUUID(),
         type: u.type,
-        amount: u.amount,
+        amount: overrides[`utility_${i}`] ?? u.amount,
         due_day: u.due_day,
         confidence: u.confidence,
         source: u.source,
@@ -208,21 +214,21 @@ export default function OnboardingPage() {
     }
 
     if (p.insurances.length > 0) {
-      setInsurances(p.insurances.map(i => ({
+      setInsurances(p.insurances.map((ins, i) => ({
         id: crypto.randomUUID(),
-        type: i.type,
-        amount: i.amount,
-        due_day: i.due_day,
-        confidence: i.confidence,
-        source: i.source,
+        type: ins.type,
+        amount: overrides[`insurance_${i}`] ?? ins.amount,
+        due_day: ins.due_day,
+        confidence: ins.confidence,
+        source: ins.source,
       } as any)))
     }
 
     if (p.cars.length > 0) {
-      setCars(p.cars.map(c => ({
+      setCars(p.cars.map((c, i) => ({
         id: crypto.randomUUID(),
         type: c.type,
-        amount: c.amount,
+        amount: overrides[`car_${i}`] ?? c.amount,
         due_day: c.due_day,
         lender: c.lender,
         confidence: c.confidence,
@@ -231,8 +237,7 @@ export default function OnboardingPage() {
     }
 
     if (p.groceries) {
-      // Split into per-trip estimate (assume 4 trips/mo)
-      const monthly = parseFloat(p.groceries.value)
+      const monthly = parseFloat(overrides['groceries'] ?? p.groceries.value)
       setGroceriesPerTrip(String(Math.round(monthly / 4)))
       setGroceriesTrips('4')
       detected['groceries'] = { confidence: p.groceries.confidence, source: p.groceries.source }
@@ -278,17 +283,20 @@ export default function OnboardingPage() {
           isIncome: tx.amount < 0,
         }))
 
-        // Subscription detection
         setSubscriptions(detectSubscriptions(rawForSubs))
 
-        // Pre-fill engine
         const rawForPrefill = txData.transactions.map((tx: any) => ({
           id: tx.id,
           date: tx.date,
-          amount: tx.amount / 100,   // signed: negative = income, positive = expense
+          amount: tx.amount / 100,
           description: tx.description ?? '',
+          category: tx.category ?? undefined,
+          subcategory: tx.subcategory ?? undefined,
         }))
         const prefill: BankPrefillResult = analyzeBankData(rawForPrefill)
+        // Store findings — user will confirm on the next step
+        setBankFindings(prefill)
+        // Still apply silently so later steps have values pre-loaded
         applyPrefill(prefill)
       }
 
@@ -593,9 +601,169 @@ export default function OnboardingPage() {
           <div>
             <SectionHead emoji="🏦" title="Link your bank." sub="Maslo connects via Stripe Financial Connections — secure, read-only, 180 days of history." />
 
-            {bankLinked ? (
+            {bankLinked && bankFindings && !bankConfirmed ? (
+              /* ── CONFIRMATION SCREEN — Section 23 "confirmation flow not data entry" ── */
+              <div>
+                <div style={{ marginBottom: 20, padding: '12px 16px', background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.2)', borderRadius: 12 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#10b981', marginBottom: 2 }}>✓ Bank connected — {bankFindings.income || bankFindings.rent || bankFindings.cars.length > 0 ? `Maslo found ${[bankFindings.income, bankFindings.rent, ...bankFindings.cars, ...bankFindings.utilities, ...bankFindings.insurances].filter(Boolean).length} items` : 'limited data detected'}</div>
+                  <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)' }}>Review what we found. Correct anything that's off — these become your vaults.</div>
+                </div>
+
+                {/* Income finding */}
+                {bankFindings.income && (() => {
+                  const key = 'income'
+                  const val = confirmEdits[key] ?? bankFindings.income.value
+                  const freq = bankFindings.income.freq
+                  const freqLabel: Record<string, string> = { weekly: 'weekly', biweekly: 'bi-weekly', semimonthly: '1st & 15th', monthly: 'monthly' }
+                  return (
+                    <div style={{ ...S.card, padding: 20, marginBottom: 12, border: '1px solid rgba(124,58,237,0.25)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: 'rgba(255,255,255,0.4)' }}>💰 INCOME DETECTED</div>
+                        <span style={{ fontSize: 9, fontWeight: 800, padding: '2px 7px', borderRadius: 4, background: bankFindings.income.confidence === 'high' ? 'rgba(16,185,129,0.15)' : 'rgba(245,158,11,0.15)', color: bankFindings.income.confidence === 'high' ? '#10b981' : '#f59e0b' }}>
+                          {bankFindings.income.confidence === 'high' ? '✓ HIGH CONFIDENCE' : '~ ESTIMATED'}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.5)', marginBottom: 12, lineHeight: 1.5 }}>
+                        We see <strong style={{ color: '#f8f8ff' }}>${Math.round(parseFloat(bankFindings.income.value)).toLocaleString()}</strong> coming in <strong style={{ color: '#f8f8ff' }}>{freqLabel[freq] ?? freq}</strong>. Is this your income? Monthly equivalent: <strong style={{ color: '#10b981' }}>${Math.round(parseFloat(val) * (freq === 'weekly' ? 52/12 : freq === 'biweekly' ? 26/12 : freq === 'semimonthly' ? 2 : 1)).toLocaleString()}/mo</strong>
+                      </div>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                        <span style={{ color: 'rgba(255,255,255,0.35)', fontSize: 14 }}>$</span>
+                        <input
+                          type="number"
+                          value={val}
+                          onChange={e => setConfirmEdits(prev => ({ ...prev, [key]: e.target.value }))}
+                          style={{ ...S.input, flex: 1 }}
+                          placeholder="Per paycheck amount"
+                        />
+                        <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)', whiteSpace: 'nowrap' as const }}>/ {freqLabel[freq] ?? freq}</span>
+                      </div>
+                      <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.2)', marginTop: 6 }}>{bankFindings.income.source}</div>
+                    </div>
+                  )
+                })()}
+
+                {/* Rent finding */}
+                {bankFindings.rent && (() => {
+                  const key = 'rent'
+                  const val = confirmEdits[key] ?? bankFindings.rent.value
+                  return (
+                    <div style={{ ...S.card, padding: 20, marginBottom: 12, border: '1px solid rgba(124,58,237,0.25)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: 'rgba(255,255,255,0.4)' }}>🏡 RENT / MORTGAGE DETECTED</div>
+                        <span style={{ fontSize: 9, fontWeight: 800, padding: '2px 7px', borderRadius: 4, background: bankFindings.rent.confidence === 'high' ? 'rgba(16,185,129,0.15)' : 'rgba(245,158,11,0.15)', color: bankFindings.rent.confidence === 'high' ? '#10b981' : '#f59e0b' }}>
+                          {bankFindings.rent.confidence === 'high' ? '✓ HIGH CONFIDENCE' : '~ CONFIRM'}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.5)', marginBottom: 12 }}>
+                        We noticed a recurring charge of <strong style={{ color: '#f8f8ff' }}>${Math.round(parseFloat(val)).toLocaleString()}/mo</strong>. Is this your rent or mortgage?
+                      </div>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                        <span style={{ color: 'rgba(255,255,255,0.35)', fontSize: 14 }}>$</span>
+                        <input type="number" value={val} onChange={e => setConfirmEdits(prev => ({ ...prev, [key]: e.target.value }))} style={{ ...S.input, flex: 1 }} placeholder="Monthly rent / mortgage" />
+                        <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)' }}>/mo</span>
+                      </div>
+                      <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.2)', marginTop: 6 }}>{bankFindings.rent.source}</div>
+                    </div>
+                  )
+                })()}
+
+                {/* Car payments */}
+                {bankFindings.cars.map((car, i) => {
+                  const key = `car_${i}`
+                  const val = confirmEdits[key] ?? car.amount
+                  return (
+                    <div key={i} style={{ ...S.card, padding: 20, marginBottom: 12, border: '1px solid rgba(124,58,237,0.25)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: 'rgba(255,255,255,0.4)' }}>🚗 CAR PAYMENT DETECTED</div>
+                        <span style={{ fontSize: 9, fontWeight: 800, padding: '2px 7px', borderRadius: 4, background: car.confidence === 'high' ? 'rgba(16,185,129,0.15)' : 'rgba(245,158,11,0.15)', color: car.confidence === 'high' ? '#10b981' : '#f59e0b' }}>
+                          {car.confidence === 'high' ? '✓ HIGH CONFIDENCE' : '~ CONFIRM'}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.5)', marginBottom: 12 }}>
+                        We see <strong style={{ color: '#f8f8ff' }}>${Math.round(parseFloat(val)).toLocaleString()}/mo</strong> going to <strong style={{ color: '#f8f8ff' }}>{car.lender}</strong>. Is this a car payment?
+                      </div>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                        <span style={{ color: 'rgba(255,255,255,0.35)', fontSize: 14 }}>$</span>
+                        <input type="number" value={val} onChange={e => setConfirmEdits(prev => ({ ...prev, [key]: e.target.value }))} style={{ ...S.input, flex: 1 }} placeholder="Monthly payment" />
+                        <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)' }}>/mo</span>
+                      </div>
+                      <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.2)', marginTop: 6 }}>{car.source}</div>
+                    </div>
+                  )
+                })}
+
+                {/* Utilities */}
+                {bankFindings.utilities.map((u, i) => {
+                  const key = `utility_${i}`
+                  const val = confirmEdits[key] ?? u.amount
+                  return (
+                    <div key={i} style={{ ...S.card, padding: 20, marginBottom: 12, border: '1px solid rgba(124,58,237,0.25)' }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: 'rgba(255,255,255,0.4)', marginBottom: 12 }}>⚡ {u.type.toUpperCase()} DETECTED</div>
+                      <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.5)', marginBottom: 12 }}>
+                        We see about <strong style={{ color: '#f8f8ff' }}>${Math.round(parseFloat(val)).toLocaleString()}/mo</strong> for {u.type}. Does that sound right?
+                      </div>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                        <span style={{ color: 'rgba(255,255,255,0.35)', fontSize: 14 }}>$</span>
+                        <input type="number" value={val} onChange={e => setConfirmEdits(prev => ({ ...prev, [key]: e.target.value }))} style={{ ...S.input, flex: 1 }} placeholder="Monthly avg" />
+                        <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)' }}>/mo</span>
+                      </div>
+                      <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.2)', marginTop: 6 }}>{u.source}</div>
+                    </div>
+                  )
+                })}
+
+                {/* Insurance */}
+                {bankFindings.insurances.map((ins, i) => {
+                  const key = `insurance_${i}`
+                  const val = confirmEdits[key] ?? ins.amount
+                  return (
+                    <div key={i} style={{ ...S.card, padding: 20, marginBottom: 12, border: '1px solid rgba(124,58,237,0.25)' }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: 'rgba(255,255,255,0.4)', marginBottom: 12 }}>🛡️ {ins.type.toUpperCase()} INSURANCE DETECTED</div>
+                      <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.5)', marginBottom: 12 }}>
+                        We see <strong style={{ color: '#f8f8ff' }}>${Math.round(parseFloat(val)).toLocaleString()}/mo</strong> for {ins.type} insurance. Correct?
+                      </div>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                        <span style={{ color: 'rgba(255,255,255,0.35)', fontSize: 14 }}>$</span>
+                        <input type="number" value={val} onChange={e => setConfirmEdits(prev => ({ ...prev, [key]: e.target.value }))} style={{ ...S.input, flex: 1 }} placeholder="Monthly premium" />
+                        <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)' }}>/mo</span>
+                      </div>
+                      <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.2)', marginTop: 6 }}>{ins.source}</div>
+                    </div>
+                  )
+                })}
+
+                {/* Nothing detected */}
+                {!bankFindings.income && !bankFindings.rent && bankFindings.cars.length === 0 && bankFindings.utilities.length === 0 && (
+                  <div style={{ ...S.card, padding: 20, marginBottom: 16, textAlign: 'center' as const }}>
+                    <div style={{ fontSize: 28, marginBottom: 8 }}>🔍</div>
+                    <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.4)', lineHeight: 1.6 }}>
+                      We couldn't detect recurring patterns from this account — Bluevine and some business accounts have limited transaction history via Stripe. You'll enter your numbers in the next steps.
+                    </div>
+                  </div>
+                )}
+
+                {/* Nudges */}
+                {bankFindings.nudges.map((nudge, i) => (
+                  <div key={i} style={{ padding: '12px 16px', background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)', borderRadius: 10, fontSize: 13, color: '#f59e0b', marginBottom: 10 }}>
+                    💬 {nudge}
+                  </div>
+                ))}
+
+                <button
+                  onClick={() => {
+                    // Apply confirmed values (with any edits) into form state
+                    applyPrefill(bankFindings!, confirmEdits)
+                    setBankConfirmed(true)
+                    next()
+                  }}
+                  style={{ ...S.btn, marginTop: 8 }}
+                >
+                  {bankFindings.income || bankFindings.rent || bankFindings.cars.length > 0 ? 'These look right →' : 'Continue →'}
+                </button>
+              </div>
+            ) : bankLinked ? (
               <div style={{ ...S.card, padding: 20, border: '1px solid rgba(16,185,129,0.3)', background: 'rgba(16,185,129,0.06)', marginBottom: 20 }}>
-                <div style={{ fontSize: 14, fontWeight: 700, color: '#10b981', marginBottom: 4 }}>✓ Bank connected</div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: '#10b981', marginBottom: 4 }}>✓ Bank connected &amp; confirmed</div>
                 <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.5)' }}>Ready to go. Continue when you&apos;re ready.</div>
               </div>
             ) : (
@@ -643,10 +811,12 @@ export default function OnboardingPage() {
               </div>
             )}
 
-            <div style={{ display: 'flex', gap: 10 }}>
-              <button onClick={back} style={S.btnSec}>← Back</button>
-              {bankLinked && <button onClick={next} style={{ ...S.btn, flex: 1 }}>Continue →</button>}
-            </div>
+            {(!bankLinked || bankConfirmed) && (
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button onClick={back} style={S.btnSec}>← Back</button>
+                {bankConfirmed && <button onClick={next} style={{ ...S.btn, flex: 1 }}>Continue →</button>}
+              </div>
+            )}
           </div>
         )}
 
