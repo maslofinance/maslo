@@ -30,19 +30,29 @@ export async function POST(request: Request) {
       ? Object.values(account.balance.cash as Record<string, number>)[0] / 100
       : null
 
-    const { error } = await supabase
+    // Check if a row already exists for this user+account so we can update vs insert
+    const { data: existing } = await supabase
       .from('stripe_fc_accounts')
-      .upsert({
-        user_id: userId,
-        stripe_account_id: accountId,
-        name: account?.display_name ?? account?.institution_name ?? 'Bank Account',
-        institution_name: account?.institution_name ?? null,
-        current_balance: currentBalance,
-        available_balance: availableBalance,
-        subtype: account?.subcategory ?? null,
-        is_active: true,
-        last_synced_at: new Date().toISOString(),
-      }, { onConflict: 'stripe_account_id' })
+      .select('id')
+      .eq('user_id', userId)
+      .eq('stripe_account_id', accountId)
+      .maybeSingle()
+
+    const payload = {
+      user_id: userId,
+      stripe_account_id: accountId,
+      name: account?.display_name ?? account?.institution_name ?? 'Bank Account',
+      institution_name: account?.institution_name ?? null,
+      current_balance: currentBalance,
+      available_balance: availableBalance,
+      subtype: account?.subcategory ?? null,
+      is_active: true,
+      last_synced_at: new Date().toISOString(),
+    }
+
+    const { error } = existing
+      ? await supabase.from('stripe_fc_accounts').update(payload).eq('id', existing.id)
+      : await supabase.from('stripe_fc_accounts').insert(payload)
 
     if (error) {
       console.error('Supabase upsert error:', error)

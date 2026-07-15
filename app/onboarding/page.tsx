@@ -223,9 +223,13 @@ export default function OnboardingPage() {
           setIncomeFreq('monthly')
         }
 
-        await fetch('/api/stripe/financial-connections/save-account', {
+        const saveRes = await fetch('/api/stripe/financial-connections/save-account', {
           method: 'POST', headers: authHeaders, body: JSON.stringify({ userId, accountId }),
         })
+        if (!saveRes.ok) {
+          const saveData = await saveRes.json().catch(() => ({}))
+          console.error('save-account failed:', saveData)
+        }
       } finally {
         clearInterval(iv)
         setAnalyzing(false)
