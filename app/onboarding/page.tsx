@@ -14,7 +14,7 @@ function getStripe() {
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-type EmploymentType = 'w2' | '1099' | 'mixed' | 'business_owner'
+type EmploymentType = 'w2' | '1099' | 'business_owner'
 type Personality    = 'drill_sergeant' | 'shaman' | 'coach'
 type Freq           = 'weekly' | 'biweekly' | 'semimonthly' | 'monthly'
 
@@ -139,13 +139,11 @@ export default function OnboardingPage() {
 
   // Optional linked accounts
   const [linkedSavingsId, setLinkedSavingsId] = useState<string | null>(null)
-  const [linkedCreditId, setLinkedCreditId]   = useState<string | null>(null)
   const [linkingSavings, setLinkingSavings]   = useState(false)
-  const [linkingCredit, setLinkingCredit]     = useState(false)
 
-  // Tax + personality
-  const [employmentType, setEmploymentType] = useState<EmploymentType>('w2')
-  const [personality, setPersonality]       = useState<Personality>('drill_sergeant')
+  // Tax + personality — multi-select employment types
+  const [employmentTypes, setEmploymentTypes] = useState<Set<EmploymentType>>(new Set(['w2']))
+  const [personality, setPersonality]         = useState<Personality>('drill_sergeant')
 
   const [submitting, setSubmitting] = useState(false)
 
@@ -253,7 +251,7 @@ export default function OnboardingPage() {
           method: 'POST', headers: authHeaders, body: JSON.stringify({ userId, accountId }),
         })
       }
-      setStep(5)
+      setStep(5) // → Tax question
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Link failed. You can skip this.')
     } finally {
@@ -261,46 +259,22 @@ export default function OnboardingPage() {
     }
   }
 
-  // ── Link optional credit card ─────────────────────────────────────────────────
-  async function linkCredit() {
-    setError('')
-    setLinkingCredit(true)
-    try {
-      const res = await fetch('/api/stripe/financial-connections/session', {
-        method: 'POST', headers: authHeaders, body: JSON.stringify({ userId }),
-      })
-      const { client_secret, error: sessionError } = await res.json()
-      if (sessionError) throw new Error(sessionError)
-      const stripe  = await getStripe()
-      const result  = await (stripe as any).collectFinancialConnectionsAccounts({ clientSecret: client_secret })
-      if (result.error) throw new Error(result.error.message)
-      const accountId = result.financialConnectionsSession?.accounts?.[0]?.id
-      if (accountId) {
-        setLinkedCreditId(accountId)
-        await fetch('/api/stripe/financial-connections/save-account', {
-          method: 'POST', headers: authHeaders, body: JSON.stringify({ userId, accountId }),
-        })
-      }
-      setStep(6)
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Link failed. You can skip this.')
-    } finally {
-      setLinkingCredit(false)
-    }
-  }
-
   // ── Submit: create vaults ─────────────────────────────────────────────────────
   async function submitOnboarding() {
     setSubmitting(true)
     setError('')
-    setStep(8)
+    setStep(7)
 
     try {
       const freqMult: Record<Freq, number> = { weekly: 52/12, biweekly: 26/12, semimonthly: 2, monthly: 1 }
       const perPaycheck    = parseFloat(income) || 0
       const monthlyIncome  = perPaycheck * freqMult[incomeFreq]
 
-      const taxRate    = employmentType === 'w2' ? 0 : employmentType === '1099' ? 0.27 : employmentType === 'business_owner' ? 0.30 : 0.15
+      // Tax rate: W-2 only = 0 (withheld), business_owner highest rate, 1099 next, combo = max
+      const hasW2   = employmentTypes.has('w2')
+      const has1099 = employmentTypes.has('1099')
+      const hasBiz  = employmentTypes.has('business_owner')
+      const taxRate = hasBiz ? 0.30 : has1099 ? 0.27 : hasW2 && (has1099 || hasBiz) ? 0.15 : 0
       const taxReserve = Math.round(monthlyIncome * taxRate)
 
       const vaults: VaultInput[] = []
@@ -357,7 +331,7 @@ export default function OnboardingPage() {
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Setup failed. Please try again.')
       setSubmitting(false)
-      setStep(7)
+      setStep(6) // back to personality so they can retry
     }
   }
 
@@ -376,7 +350,7 @@ export default function OnboardingPage() {
         </div>
 
         {/* Error banner */}
-        {error && step !== 7 && (
+        {error && step !== 6 && (
           <div style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: 10, padding: '12px 16px', fontSize: 13, color: '#fca5a5', marginBottom: 20, lineHeight: 1.5 }}>
             {error}
           </div>
@@ -598,86 +572,66 @@ export default function OnboardingPage() {
           </div>
         )}
 
-        {/* ── STEP 5: CREDIT CARD (OPTIONAL) ────────────────────────────────── */}
+        {/* ── STEP 5: TAX QUESTION (multi-select) ────────────────────────────── */}
         {step === 5 && (
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column' as const, justifyContent: 'center' }}>
-            {linkingCredit ? (
-              <Spinner message="Connecting credit card..." />
-            ) : linkedCreditId ? (
-              <>
-                <div style={{ marginBottom: 40 }}>
-                  <div style={{ fontSize: 44, marginBottom: 20 }}>✅</div>
-                  <h2 style={{ fontSize: 28, fontWeight: 900, margin: '0 0 12px', letterSpacing: '-0.6px' }}>Credit card linked.</h2>
-                  <p style={{ fontSize: 15, color: 'rgba(255,255,255,0.5)', margin: 0 }}>Maslo will track this as debt — not spending money.</p>
-                </div>
-                <button onClick={() => setStep(6)} style={S.btn}>Continue →</button>
-              </>
-            ) : (
-              <>
-                <div style={{ marginBottom: 40 }}>
-                  <div style={{ fontSize: 44, marginBottom: 20 }}>💳</div>
-                  <h2 style={{ fontSize: 28, fontWeight: 900, margin: '0 0 14px', letterSpacing: '-0.6px' }}>Any credit cards?</h2>
-                  <p style={{ fontSize: 15, color: 'rgba(255,255,255,0.5)', margin: 0, lineHeight: 1.65 }}>
-                    Maslo tracks these as <strong style={{ color: '#f8f8ff' }}>debt to manage</strong> — not spending money. Linking lets Maslo track balances and detect payments automatically.
-                  </p>
-                </div>
-                {error && (
-                  <div style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: 10, padding: '12px 16px', fontSize: 13, color: '#fca5a5', marginBottom: 16 }}>
-                    {error}
-                  </div>
-                )}
-                <button onClick={linkCredit} style={S.btn}>Link Credit Card</button>
-                <button onClick={() => { setError(''); setStep(6) }} style={S.skip}>Skip for now</button>
-              </>
-            )}
-          </div>
-        )}
-
-        {/* ── STEP 6: TAX QUESTION ───────────────────────────────────────────── */}
-        {step === 6 && (
           <div>
             <div style={{ marginBottom: 32 }}>
               <div style={{ fontSize: 44, marginBottom: 20 }}>🧾</div>
               <h2 style={{ fontSize: 28, fontWeight: 900, margin: '0 0 14px', letterSpacing: '-0.6px' }}>One quick question.</h2>
               <p style={{ fontSize: 15, color: 'rgba(255,255,255,0.5)', margin: 0, lineHeight: 1.65 }}>
-                How do you earn your income? Maslo uses this to set aside the right amount for taxes automatically — so April is never a surprise again.
+                How do you earn your income? Select all that apply. Maslo sets aside the right amount for taxes automatically — so April is never a surprise.
               </p>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 24 }}>
               {([
-                { val: 'w2',             icon: '🏢', label: 'W-2 Employee',       desc: 'Employer withholds taxes' },
-                { val: '1099',           icon: '💼', label: '1099 / Freelance',   desc: 'You pay your own taxes' },
-                { val: 'mixed',          icon: '⚡', label: 'W-2 + Side Income',  desc: 'Job + hustle' },
-                { val: 'business_owner', icon: '🏗️', label: 'Business Owner',    desc: 'LLC, S-Corp, sole prop' },
-              ] as { val: EmploymentType; icon: string; label: string; desc: string }[]).map(opt => (
-                <div
-                  key={opt.val}
-                  onClick={() => setEmploymentType(opt.val)}
-                  style={{
-                    ...S.card, padding: '18px 16px', cursor: 'pointer',
-                    border: employmentType === opt.val ? '1px solid rgba(124,58,237,0.5)' : '1px solid rgba(255,255,255,0.07)',
-                    background: employmentType === opt.val ? 'rgba(124,58,237,0.12)' : '#0d0d24',
-                    transition: 'all 0.15s',
-                  }}
-                >
-                  <div style={{ fontSize: 28, marginBottom: 8 }}>{opt.icon}</div>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: '#f8f8ff', marginBottom: 4 }}>{opt.label}</div>
-                  <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', lineHeight: 1.4 }}>{opt.desc}</div>
-                  {employmentType === opt.val && (
-                    <div style={{ fontSize: 10, color: '#7c3aed', fontWeight: 800, marginTop: 8, letterSpacing: '0.05em' }}>SELECTED ✓</div>
-                  )}
-                </div>
-              ))}
+                { val: 'w2'            , icon: '🏢', label: 'W-2 Employee',    desc: 'Employer withholds taxes' },
+                { val: '1099'          , icon: '💼', label: '1099 / Freelance', desc: 'You pay your own taxes' },
+                { val: 'business_owner', icon: '🏗️', label: 'Business Owner',  desc: 'LLC, S-Corp, sole prop' },
+              ] as { val: EmploymentType; icon: string; label: string; desc: string }[]).map(opt => {
+                const selected = employmentTypes.has(opt.val)
+                return (
+                  <div
+                    key={opt.val}
+                    onClick={() => {
+                      setEmploymentTypes(prev => {
+                        const next = new Set(prev)
+                        if (next.has(opt.val)) next.delete(opt.val)
+                        else next.add(opt.val)
+                        if (next.size === 0) next.add('w2') // always at least one
+                        return next
+                      })
+                    }}
+                    style={{
+                      ...S.card, padding: '18px 16px', cursor: 'pointer',
+                      border: selected ? '1px solid rgba(124,58,237,0.5)' : '1px solid rgba(255,255,255,0.07)',
+                      background: selected ? 'rgba(124,58,237,0.12)' : '#0d0d24',
+                      transition: 'all 0.15s', position: 'relative' as const,
+                    }}
+                  >
+                    {selected && (
+                      <div style={{ position: 'absolute', top: 12, right: 12, width: 18, height: 18, borderRadius: 5, background: '#7c3aed', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, color: '#fff', fontWeight: 800 }}>✓</div>
+                    )}
+                    <div style={{ fontSize: 28, marginBottom: 8 }}>{opt.icon}</div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#f8f8ff', marginBottom: 4 }}>{opt.label}</div>
+                    <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', lineHeight: 1.4 }}>{opt.desc}</div>
+                  </div>
+                )
+              })}
             </div>
 
             {/* Tax reserve preview */}
-            {employmentType !== 'w2' && (() => {
+            {(() => {
+              const hasW2   = employmentTypes.has('w2')
+              const has1099 = employmentTypes.has('1099')
+              const hasBiz  = employmentTypes.has('business_owner')
+              const rate = hasBiz ? 0.30 : has1099 ? 0.27 : 0
+              if (rate === 0 && hasW2 && !has1099 && !hasBiz) return null
               const perPaycheck   = parseFloat(income) || 0
               const mult: Record<Freq, number> = { weekly: 52/12, biweekly: 26/12, semimonthly: 2, monthly: 1 }
               const monthlyIncome = perPaycheck * mult[incomeFreq]
-              const rate = employmentType === '1099' ? 0.27 : employmentType === 'business_owner' ? 0.30 : 0.15
-              const reserve = Math.round(monthlyIncome * rate)
+              const effectiveRate = hasBiz ? 0.30 : has1099 ? 0.27 : 0.15
+              const reserve = Math.round(monthlyIncome * effectiveRate)
               return reserve > 0 ? (
                 <div style={{ padding: '14px 18px', background: 'rgba(124,58,237,0.08)', border: '1px solid rgba(124,58,237,0.2)', borderRadius: 12, fontSize: 13, color: 'rgba(255,255,255,0.6)', marginBottom: 24, lineHeight: 1.6 }}>
                   🧾 Maslo will set aside <strong style={{ color: '#a78bfa' }}>${reserve.toLocaleString()}/mo</strong> in a Tax Reserve vault automatically. Adjust anytime from your dashboard.
@@ -685,12 +639,12 @@ export default function OnboardingPage() {
               ) : null
             })()}
 
-            <button onClick={() => setStep(7)} style={S.btn}>Continue →</button>
+            <button onClick={() => setStep(6)} style={S.btn}>Continue →</button>
           </div>
         )}
 
-        {/* ── STEP 7: BUDGET PERSONALITY ─────────────────────────────────────── */}
-        {step === 7 && (
+        {/* ── STEP 6: BUDGET PERSONALITY ─────────────────────────────────────── */}
+        {step === 6 && (
           <div>
             <div style={{ marginBottom: 32 }}>
               <div style={{ fontSize: 44, marginBottom: 20 }}>🎯</div>
@@ -763,8 +717,8 @@ export default function OnboardingPage() {
           </div>
         )}
 
-        {/* ── STEP 8: CREATING VAULTS ────────────────────────────────────────── */}
-        {step === 8 && (
+        {/* ── STEP 7: CREATING VAULTS ────────────────────────────────────────── */}
+        {step === 7 && (
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column' as const, justifyContent: 'center' }}>
             <Spinner message="Building your vaults with real data..." />
             <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.25)', textAlign: 'center' as const, marginTop: 8, lineHeight: 1.6 }}>
