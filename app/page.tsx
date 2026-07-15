@@ -392,11 +392,15 @@ export default function DashboardPage() {
                 TOTAL CASH BALANCE
               </p>
               <div style={{ fontSize: 48, fontWeight: 900, color: '#f8f8ff', letterSpacing: '-2px', lineHeight: 1 }}>
-                {totalLinked > 0 ? fmt(totalBalance) : '—'}
+                {totalLinked === 0 ? '—' : allLinkedAccounts.some(a => a.current_balance !== null) ? fmt(totalBalance) : '—'}
               </div>
               {totalLinked === 0 ? (
                 <p style={{ margin: '8px 0 0', fontSize: 12, color: 'rgba(255,255,255,0.3)' }}>
                   Link a bank account to see your balance
+                </p>
+              ) : allLinkedAccounts.every(a => a.current_balance === null) ? (
+                <p style={{ margin: '8px 0 0', fontSize: 12, color: 'rgba(245,158,11,0.7)' }}>
+                  {allLinkedAccounts.map(a => a.name).join(' · ')} · Balance data not available from this institution
                 </p>
               ) : (
                 <p style={{ margin: '8px 0 0', fontSize: 12, color: 'rgba(255,255,255,0.3)' }}>

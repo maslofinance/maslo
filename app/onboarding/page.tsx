@@ -441,9 +441,12 @@ export default function OnboardingPage() {
 
             {!findings.income && !findings.rent && findings.cars.length === 0 && findings.utilities.length === 0 && findings.insurances.length === 0 && (
               <div style={{ ...S.card, padding: 24, marginBottom: 20, textAlign: 'center' as const }}>
-                <div style={{ fontSize: 36, marginBottom: 12 }}>🔍</div>
-                <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.4)', margin: 0, lineHeight: 1.6 }}>
-                  Limited history detected — some banks don&apos;t expose full data via Stripe. Enter your numbers below and Maslo will learn over time.
+                <div style={{ fontSize: 36, marginBottom: 12 }}>🏦</div>
+                <p style={{ fontSize: 15, fontWeight: 700, color: '#f8f8ff', margin: '0 0 8px' }}>
+                  Your bank didn&apos;t share transaction data.
+                </p>
+                <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.4)', margin: 0, lineHeight: 1.6 }}>
+                  Some institutions (especially business banks) restrict access through Stripe. Enter your numbers manually — Maslo will build a picture from here and get smarter as you go.
                 </p>
               </div>
             )}
