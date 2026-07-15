@@ -17,7 +17,7 @@ export async function POST(request: Request) {
     // Retrieve account from Stripe — balance may be null for many institutions (e.g. Bluevine)
     let account: any = null
     try {
-      account = await stripe.financialConnections.accounts.retrieve(accountId)
+      account = await stripe.financialConnections.accounts.retrieve(accountId, { expand: ['balance'] })
     } catch (stripeErr: any) {
       console.error('Stripe FC retrieve error:', stripeErr.message)
       // Save with minimal data rather than failing entirely

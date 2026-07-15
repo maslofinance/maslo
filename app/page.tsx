@@ -212,9 +212,10 @@ export default function DashboardPage() {
   const [vaults, setVaults] = useState<Vault[]>([])
   const [profile, setProfile] = useState<Profile | null>(null)
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([])
-  const [fcAccounts, setFcAccounts] = useState<{ name: string; current_balance: number | null; available_balance: number | null }[]>([])
+  const [fcAccounts, setFcAccounts] = useState<{ id: string; name: string; current_balance: number | null; available_balance: number | null }[]>([])
   const [userEmail, setUserEmail] = useState('')
   const [linkingMore, setLinkingMore] = useState(false)
+  const [unlinking, setUnlinking] = useState<string | null>(null)
 
   // ── Auth + data load ────────────────────────────────────────────
   useEffect(() => {
@@ -229,7 +230,7 @@ export default function DashboardPage() {
         supabase.from('profiles').select('email, monthly_income, budget_style, notification_tone, onboarding_complete, onboarding_step').eq('id', uid).single(),
         supabase.from('vaults').select('*').eq('user_id', uid).eq('is_active', true).order('priority'),
         supabase.from('bank_accounts').select('name, current_balance, available_balance').eq('user_id', uid).eq('is_active', true),
-        (supabase as any).from('stripe_fc_accounts').select('name, current_balance, available_balance').eq('user_id', uid).eq('is_active', true),
+        (supabase as any).from('stripe_fc_accounts').select('id, name, current_balance, available_balance').eq('user_id', uid).eq('is_active', true),
       ])
 
       const p = profileRes.data
@@ -292,12 +293,32 @@ export default function DashboardPage() {
         body: JSON.stringify({ userId: uid, accountId }),
       })
       // Refresh FC accounts
-      const { data: fresh } = await (supabase as any).from('stripe_fc_accounts').select('name, current_balance, available_balance').eq('user_id', uid!).eq('is_active', true)
+      const { data: fresh } = await (supabase as any).from('stripe_fc_accounts').select('id, name, current_balance, available_balance').eq('user_id', uid!).eq('is_active', true)
       setFcAccounts(fresh ?? [])
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Failed to link account')
     } finally {
       setLinkingMore(false)
+    }
+  }, [])
+
+  const handleUnlink = useCallback(async (accountId: string, accountName: string) => {
+    if (!confirm(`Unlink ${accountName}?`)) return
+    setUnlinking(accountId)
+    try {
+      const { data } = await supabase.auth.getSession()
+      const token = data.session?.access_token
+      const res = await fetch('/api/stripe/financial-connections/unlink-account', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ accountId }),
+      })
+      if (!res.ok) throw new Error('Failed to unlink')
+      setFcAccounts(prev => prev.filter(a => a.id !== accountId))
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Failed to unlink')
+    } finally {
+      setUnlinking(null)
     }
   }, [])
 
@@ -398,14 +419,23 @@ export default function DashboardPage() {
                 <p style={{ margin: '8px 0 0', fontSize: 12, color: 'rgba(255,255,255,0.3)' }}>
                   Link a bank account to see your balance
                 </p>
-              ) : allLinkedAccounts.every(a => a.current_balance === null) ? (
-                <p style={{ margin: '8px 0 0', fontSize: 12, color: 'rgba(245,158,11,0.7)' }}>
-                  {allLinkedAccounts.map(a => a.name).join(' · ')} · Balance data not available from this institution
-                </p>
               ) : (
-                <p style={{ margin: '8px 0 0', fontSize: 12, color: 'rgba(255,255,255,0.3)' }}>
-                  {allLinkedAccounts.map(a => a.name).join(' · ')}
-                </p>
+                <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  {fcAccounts.map(a => (
+                    <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontSize: 12, color: a.current_balance === null ? 'rgba(245,158,11,0.8)' : 'rgba(255,255,255,0.4)' }}>
+                        {a.name}{a.current_balance === null ? ' · balance unavailable' : ''}
+                      </span>
+                      <button
+                        onClick={() => handleUnlink(a.id, a.name)}
+                        disabled={unlinking === a.id}
+                        style={{ fontSize: 10, color: 'rgba(239,68,68,0.5)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontWeight: 600 }}
+                      >
+                        {unlinking === a.id ? 'unlinking…' : 'unlink'}
+                      </button>
+                    </div>
+                  ))}
+                </div>
               )}
             </div>
 
