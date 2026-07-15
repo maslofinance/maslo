@@ -14,13 +14,20 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'userId and accountId required' }, { status: 400 })
     }
 
-    const account = await stripe.financialConnections.accounts.retrieve(accountId)
+    // Retrieve account from Stripe — balance may be null for many institutions (e.g. Bluevine)
+    let account: any = null
+    try {
+      account = await stripe.financialConnections.accounts.retrieve(accountId)
+    } catch (stripeErr: any) {
+      console.error('Stripe FC retrieve error:', stripeErr.message)
+      // Save with minimal data rather than failing entirely
+    }
 
-    const currentBalance = account.balance?.current
-      ? Object.values(account.balance.current)[0] / 100
+    const currentBalance = account?.balance?.current
+      ? Object.values(account.balance.current as Record<string, number>)[0] / 100
       : null
-    const availableBalance = account.balance?.cash
-      ? Object.values(account.balance.cash)[0] / 100
+    const availableBalance = account?.balance?.cash
+      ? Object.values(account.balance.cash as Record<string, number>)[0] / 100
       : null
 
     const { error } = await supabase
@@ -28,18 +35,21 @@ export async function POST(request: Request) {
       .upsert({
         user_id: userId,
         stripe_account_id: accountId,
-        name: account.display_name ?? account.institution_name ?? 'Bank Account',
-        institution_name: account.institution_name ?? null,
+        name: account?.display_name ?? account?.institution_name ?? 'Bank Account',
+        institution_name: account?.institution_name ?? null,
         current_balance: currentBalance,
         available_balance: availableBalance,
-        subtype: account.subcategory ?? null,
+        subtype: account?.subcategory ?? null,
         is_active: true,
         last_synced_at: new Date().toISOString(),
       }, { onConflict: 'stripe_account_id' })
 
-    if (error) throw error
+    if (error) {
+      console.error('Supabase upsert error:', error)
+      throw error
+    }
 
-    return NextResponse.json({ success: true })
+    return NextResponse.json({ success: true, institution: account?.institution_name ?? 'Bank Account', balance: currentBalance })
   } catch (err: any) {
     console.error('save-account error:', err)
     return NextResponse.json({ error: err.message }, { status: 500 })

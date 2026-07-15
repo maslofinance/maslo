@@ -206,13 +206,21 @@ export default function OnboardingPage() {
           }))
           const found = analyzeBankData(rawTxs)
           setFindings(found)
-          if (found.income) { setIncome(found.income.value); setIncomeFreq(found.income.freq) }
-          if (found.rent)   setRent(found.rent.value)
+          if (found.income) {
+            // bank-prefill returns monthly equivalent in value — convert back to per-paycheck
+            // so the confirm card shows "1,250 / weekly" and submit multiplies correctly
+            const freqMult: Record<string, number> = { weekly: 52/12, biweekly: 26/12, semimonthly: 2, monthly: 1 }
+            const perCheck = Math.round(parseFloat(found.income.value) / (freqMult[found.income.freq] ?? 1))
+            setIncome(String(perCheck))
+            setIncomeFreq(found.income.freq)
+          }
+          if (found.rent) setRent(found.rent.value)
           setCarEdits(found.cars.map(c => c.amount))
           setUtilEdits(found.utilities.map(u => u.amount))
           setInsEdits(found.insurances.map(i => i.amount))
         } else {
           setFindings({ utilities: [], insurances: [], cars: [], nudges: [] })
+          setIncomeFreq('monthly')
         }
 
         await fetch('/api/stripe/financial-connections/save-account', {
@@ -450,7 +458,7 @@ export default function OnboardingPage() {
                     unit={`/ ${freqLabel[incomeFreq] ?? incomeFreq}`}
                     confidence={findings.income.confidence}
                     source={findings.income.source}
-                    description={`We see $${Math.round(parseFloat(findings.income.value)).toLocaleString()} coming in ${freqLabel[incomeFreq] ?? incomeFreq}. Monthly equivalent: $${monthly.toLocaleString()}/mo`}
+                    description={`We see $${Math.round(parseFloat(income || '0')).toLocaleString()} coming in ${freqLabel[incomeFreq] ?? incomeFreq}. Monthly equivalent: $${monthly.toLocaleString()}/mo`}
                   />
                 )
               })()

@@ -394,9 +394,13 @@ export default function DashboardPage() {
               <div style={{ fontSize: 48, fontWeight: 900, color: '#f8f8ff', letterSpacing: '-2px', lineHeight: 1 }}>
                 {totalLinked > 0 ? fmt(totalBalance) : '—'}
               </div>
-              {totalLinked === 0 && (
+              {totalLinked === 0 ? (
                 <p style={{ margin: '8px 0 0', fontSize: 12, color: 'rgba(255,255,255,0.3)' }}>
                   Link a bank account to see your balance
+                </p>
+              ) : (
+                <p style={{ margin: '8px 0 0', fontSize: 12, color: 'rgba(255,255,255,0.3)' }}>
+                  {allLinkedAccounts.map(a => a.name).join(' · ')}
                 </p>
               )}
             </div>
