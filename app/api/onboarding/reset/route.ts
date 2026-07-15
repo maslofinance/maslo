@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
 
     await supabase.from('transactions').delete().eq('user_id', uid)
     await supabase.from('income_events').delete().eq('user_id', uid)
-    await supabase.from('stripe_fc_accounts').delete().eq('user_id', uid)
+    await (supabase as any).from('stripe_fc_accounts').delete().eq('user_id', uid)
     await supabase.from('goals').delete().eq('user_id', uid)
     await supabase.from('user_merchant_rules').delete().eq('user_id', uid)
 
