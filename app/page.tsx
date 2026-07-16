@@ -62,6 +62,9 @@ const SECTION_META: SectionMeta[] = [
 const fmt = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
 
+const fmtExact = (n: number) =>
+  new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)
+
 function barColor(pct: number, key: string): string {
   if (key === 'lifestyle') {
     if (pct >= 0.6) return 'linear-gradient(90deg, #059669, #10b981)'
@@ -434,7 +437,7 @@ export default function DashboardPage() {
                 TOTAL CASH BALANCE
               </p>
               <div style={{ fontSize: 48, fontWeight: 900, color: '#f8f8ff', letterSpacing: '-2px', lineHeight: 1 }}>
-                {totalLinked === 0 ? '—' : allLinkedAccounts.some(a => a.current_balance !== null) ? fmt(totalBalance) : '—'}
+                {totalLinked === 0 ? '—' : allLinkedAccounts.some(a => a.current_balance !== null) ? fmtExact(totalBalance) : '—'}
               </div>
               {totalLinked === 0 ? (
                 <p style={{ margin: '8px 0 0', fontSize: 12, color: 'rgba(255,255,255,0.3)' }}>
