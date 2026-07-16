@@ -51,20 +51,26 @@ export async function POST(request: Request) {
 
 // ---------------------------------------------------------------------------
 // Real-time authorization — Stripe gives us ~2 seconds to respond APPROVE or DECLINE.
+//
+// Locking model (Section 2-4, MASLO_CONTEXT_8):
+//   - Locked money → only the whitelisted merchant for that vault can charge it
+//   - Unlocked money → spend freely on anything
+//   - A merchant matching a locked vault's whitelist → APPROVE (expected payment)
+//   - Any other merchant → APPROVE (free spending from unlocked funds)
+//   - Future: when Maslo Treasury is live, enforce that unlocked balance covers charge
 // ---------------------------------------------------------------------------
 async function handleAuthorizationRequest(
   authorization: Stripe.Issuing.Authorization
 ): Promise<NextResponse> {
   const cardId = authorization.card.id
   const amountCents = authorization.amount
-  const merchantCategory = authorization.merchant_data.category
-  const merchantName = authorization.merchant_data.name
+  const merchantName = (authorization.merchant_data.name ?? '').toLowerCase().trim()
   const amountDollars = amountCents / 100
 
-  console.log(`[Auth] ${merchantName} | $${amountDollars.toFixed(2)} | MCC: ${merchantCategory}`)
+  console.log(`[Auth] ${merchantName} | $${amountDollars.toFixed(2)}`)
 
   try {
-    // 1. Find the user by card ID
+    // 1. Find user by card ID
     const { data: profile } = await supabase
       .from('profiles')
       .select('id, notification_tone')
@@ -72,57 +78,60 @@ async function handleAuthorizationRequest(
       .single()
 
     if (!profile) {
-      console.error(`[Auth] No profile found for card ${cardId} — declining`)
+      console.error(`[Auth] No profile for card ${cardId} — declining`)
       return approveOrDecline(authorization.id, false, 'card_not_active')
     }
 
-    // 2. Map MCC to vault category
-    const vaultCategory = mapMccToVaultCategory(merchantCategory)
-
-    // 3. Check vault balance — uses real schema: category (enum), current_balance, lock_type
-    const { data: vault } = await supabase
+    // 2. Load all locked vaults for this user
+    const { data: lockedVaults } = await supabase
       .from('vaults')
-      .select('id, current_balance, category, lock_type')
+      .select('id, name, whitelisted_merchant, target_amount')
       .eq('user_id', profile.id)
-      .eq('category', vaultCategory)
+      .eq('is_locked', true)
       .eq('is_active', true)
-      .single()
 
-    const vaultBalance = Number(vault?.current_balance ?? 0)
-    const isHardLocked = vault?.lock_type === 'hard_lock'
+    // 3. Check if merchant matches any locked vault's whitelist
+    const matchedVault = (lockedVaults ?? []).find(v => {
+      const wl = (v.whitelisted_merchant ?? '').toLowerCase().trim()
+      return wl && (merchantName.includes(wl) || wl.includes(merchantName))
+    })
 
-    console.log(`[Auth] Vault: ${vaultCategory} | Balance: $${vaultBalance} | Hard lock: ${isHardLocked} | Charge: $${amountDollars}`)
+    let approved = true
+    let reason = ''
+    let matchedVaultId: string | null = null
 
-    // 4. Enforce vault logic
-    // Hard-locked vaults always block. Otherwise check if funds are available.
-    const approved = !isHardLocked && vaultBalance >= amountDollars
-
-    if (!approved) {
-      const reason = isHardLocked ? 'hard_lock' : 'insufficient_funds'
-      console.log(`[Auth] DECLINED — ${vaultCategory} vault (${reason})`)
+    if (matchedVault) {
+      // Whitelisted merchant for a locked vault — always approve
+      approved = true
+      matchedVaultId = matchedVault.id
+      reason = `Whitelisted for ${matchedVault.name} vault`
+      console.log(`[Auth] APPROVED — whitelisted merchant for vault: ${matchedVault.name}`)
     } else {
-      console.log(`[Auth] APPROVED — ${vaultCategory} vault has sufficient funds`)
+      // Not whitelisted — approve as free spending from unlocked funds
+      // (Phase 2: enforce unlocked balance check via Maslo Treasury)
+      approved = true
+      reason = 'Unlocked spending'
+      console.log(`[Auth] APPROVED — unlocked spending`)
     }
 
-    // 5. Log to transactions table using real schema
+    // 4. Log transaction
     const today = new Date().toISOString().split('T')[0]
     await supabase.from('transactions').insert({
       user_id: profile.id,
-      vault_id: vault?.id ?? null,
+      vault_id: matchedVaultId,
       amount: amountDollars,
       date: today,
-      merchant_name: merchantName,
-      description: `${merchantName} — ${vaultCategory}`,
-      category: vaultCategory,
-      status: approved ? 'approved' : 'denied',
-      maslo_decision_reason: approved ? null : (isHardLocked ? 'Vault is hard locked' : `Vault balance $${vaultBalance} insufficient for $${amountDollars} charge`),
+      merchant_name: authorization.merchant_data.name,
+      description: authorization.merchant_data.name ?? 'Card purchase',
+      category: matchedVault ? 'essentials' : 'lifestyle',
+      status: 'approved',
+      maslo_decision_reason: reason,
       is_pending: false,
     })
 
-    return approveOrDecline(authorization.id, approved, approved ? undefined : (isHardLocked ? 'hard_lock' : 'insufficient_funds'))
+    return approveOrDecline(authorization.id, true)
 
   } catch (err: any) {
-    // On internal error default to APPROVE — never block a legitimate charge due to our bug
     console.error('[Auth] Internal error — defaulting to approve:', err.message)
     return approveOrDecline(authorization.id, true)
   }

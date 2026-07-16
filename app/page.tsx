@@ -26,6 +26,8 @@ interface Vault {
   lock_type: LockType
   category: VaultCategory
   description: string | null
+  is_locked: boolean
+  whitelisted_merchant: string | null
 }
 
 interface Profile {
@@ -96,7 +98,16 @@ function ordinal(n: number) {
 
 // ─── Vault Row ───────────────────────────────────────────────────────────────
 
-function VaultRow({ vault, meta, mounted }: { vault: Vault; meta: SectionMeta; mounted: boolean }) {
+function VaultRow({ vault, meta, mounted, merchantInput, onLockToggle, onConfirmLock, onMerchantChange, locking }: {
+  vault: Vault
+  meta: SectionMeta
+  mounted: boolean
+  merchantInput: string | undefined
+  onLockToggle: (v: Vault) => void
+  onConfirmLock: (v: Vault) => void
+  onMerchantChange: (id: string, val: string) => void
+  locking: boolean
+}) {
   const pct = vault.target_amount > 0 ? Math.min(vault.current_balance / vault.target_amount, 1) : 0
   const badge = getBadge(pct, meta.key)
   const [hovered, setHovered] = useState(false)
@@ -154,13 +165,76 @@ function VaultRow({ vault, meta, mounted }: { vault: Vault; meta: SectionMeta; m
           boxShadow: pct >= 1 ? '0 0 8px rgba(16,185,129,0.4)' : undefined,
         }} />
       </div>
+
+      {/* Lock UI */}
+      {merchantInput !== undefined ? (
+        <div style={{ marginTop: 12, display: 'flex', gap: 8, alignItems: 'center' }}>
+          <input
+            autoFocus
+            placeholder="Who do you pay this to? (e.g. Willow Creek Properties)"
+            value={merchantInput}
+            onChange={e => onMerchantChange(vault.id, e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && onConfirmLock(vault)}
+            style={{
+              flex: 1, padding: '8px 12px', background: 'rgba(255,255,255,0.06)',
+              border: '1px solid rgba(124,58,237,0.4)', borderRadius: 8,
+              color: '#f8f8ff', fontSize: 13, outline: 'none',
+            }}
+          />
+          <button
+            onClick={() => onConfirmLock(vault)}
+            disabled={!merchantInput.trim() || locking}
+            style={{
+              padding: '8px 16px', background: 'rgba(124,58,237,0.8)', border: 'none',
+              borderRadius: 8, color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer',
+              opacity: !merchantInput.trim() || locking ? 0.4 : 1,
+            }}
+          >
+            {locking ? '…' : 'Lock 🔒'}
+          </button>
+          <button
+            onClick={() => onMerchantChange(vault.id, '__cancel__')}
+            style={{ padding: '8px 12px', background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', fontSize: 12, cursor: 'pointer' }}
+          >
+            Cancel
+          </button>
+        </div>
+      ) : (
+        <div style={{ marginTop: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          {vault.is_locked && (
+            <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)' }}>
+              🔒 {vault.whitelisted_merchant}
+            </span>
+          )}
+          <button
+            onClick={() => onLockToggle(vault)}
+            disabled={locking}
+            style={{
+              marginLeft: 'auto', padding: '5px 12px',
+              background: vault.is_locked ? 'rgba(239,68,68,0.08)' : 'rgba(124,58,237,0.08)',
+              border: `1px solid ${vault.is_locked ? 'rgba(239,68,68,0.25)' : 'rgba(124,58,237,0.25)'}`,
+              borderRadius: 99, color: vault.is_locked ? '#f87171' : '#c4b5fd',
+              fontSize: 11, fontWeight: 700, cursor: 'pointer', letterSpacing: '0.03em',
+            }}
+          >
+            {vault.is_locked ? 'Unlock' : '+ Lock'}
+          </button>
+        </div>
+      )}
     </div>
   )
 }
 
 // ─── Section Card ─────────────────────────────────────────────────────────────
 
-function SectionCard({ meta, vaults, mounted }: { meta: SectionMeta; vaults: Vault[]; mounted: boolean }) {
+function SectionCard({ meta, vaults, mounted, merchantInputs, onLockToggle, onConfirmLock, onMerchantChange, lockingVault }: {
+  meta: SectionMeta; vaults: Vault[]; mounted: boolean
+  merchantInputs: Record<string, string>
+  onLockToggle: (v: Vault) => void
+  onConfirmLock: (v: Vault) => void
+  onMerchantChange: (id: string, val: string) => void
+  lockingVault: string | null
+}) {
   const totalBal = vaults.reduce((s, v) => s + v.current_balance, 0)
   const totalTgt = vaults.reduce((s, v) => s + v.target_amount, 0)
   const overallPct = totalTgt > 0 ? Math.min(totalBal / totalTgt, 1) : 0
@@ -198,7 +272,16 @@ function SectionCard({ meta, vaults, mounted }: { meta: SectionMeta; vaults: Vau
           No {meta.label.toLowerCase()} vaults set up.
         </div>
       ) : (
-        vaults.map(v => <VaultRow key={v.id} vault={v} meta={meta} mounted={mounted} />)
+        vaults.map(v => (
+          <VaultRow
+            key={v.id} vault={v} meta={meta} mounted={mounted}
+            merchantInput={merchantInputs[v.id]}
+            onLockToggle={onLockToggle}
+            onConfirmLock={onConfirmLock}
+            onMerchantChange={onMerchantChange}
+            locking={lockingVault === v.id}
+          />
+        ))
       )}
     </div>
   )
@@ -221,6 +304,8 @@ export default function DashboardPage() {
   const [userEmail, setUserEmail] = useState('')
   const [linkingMore, setLinkingMore] = useState(false)
   const [unlinking, setUnlinking] = useState<string | null>(null)
+  const [lockingVault, setLockingVault] = useState<string | null>(null)
+  const [merchantInput, setMerchantInput] = useState<Record<string, string>>({})
 
   // ── Auth + data load ────────────────────────────────────────────
   useEffect(() => {
@@ -233,7 +318,7 @@ export default function DashboardPage() {
 
       const [profileRes, vaultsRes, accountsRes, fcRes] = await Promise.all([
         supabase.from('profiles').select('email, monthly_income, budget_style, notification_tone, onboarding_complete, onboarding_step').eq('id', uid).single(),
-        supabase.from('vaults').select('*').eq('user_id', uid).eq('is_active', true).order('priority'),
+        supabase.from('vaults').select('*, is_locked, whitelisted_merchant').eq('user_id', uid).eq('is_active', true).order('priority'),
         supabase.from('bank_accounts').select('name, current_balance, available_balance').eq('user_id', uid).eq('is_active', true),
         (supabase as any).from('stripe_fc_accounts').select('id, stripe_account_id, name, current_balance, available_balance').eq('user_id', uid).eq('is_active', true),
       ])
@@ -244,7 +329,7 @@ export default function DashboardPage() {
       }
 
       setProfile(p)
-      setVaults((vaultsRes.data ?? []) as Vault[])
+      setVaults((vaultsRes.data ?? []) as unknown as Vault[])
       setBankAccounts((accountsRes.data ?? []) as BankAccount[])
       const accounts = fcRes.data ?? []
       setFcAccounts(accounts)
@@ -325,6 +410,47 @@ export default function DashboardPage() {
       setLinkingMore(false)
     }
   }, [])
+
+  const handleLockToggle = useCallback(async (vault: Vault) => {
+    const { data } = await supabase.auth.getSession()
+    const token = data.session?.access_token
+    if (vault.is_locked) {
+      // Unlock immediately
+      setLockingVault(vault.id)
+      try {
+        const res = await fetch('/api/vaults/lock', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify({ vault_id: vault.id, lock: false }),
+        })
+        if (!res.ok) throw new Error('Failed to unlock')
+        setVaults(prev => prev.map(v => v.id === vault.id ? { ...v, is_locked: false, whitelisted_merchant: null } : v))
+      } catch (e) { alert(e instanceof Error ? e.message : 'Failed to unlock') }
+      finally { setLockingVault(null) }
+    } else {
+      // Show merchant input inline — handled in UI
+      setMerchantInput(prev => ({ ...prev, [vault.id]: '' }))
+    }
+  }, [])
+
+  const handleConfirmLock = useCallback(async (vault: Vault) => {
+    const merchant = merchantInput[vault.id]?.trim()
+    if (!merchant) return
+    const { data } = await supabase.auth.getSession()
+    const token = data.session?.access_token
+    setLockingVault(vault.id)
+    try {
+      const res = await fetch('/api/vaults/lock', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ vault_id: vault.id, lock: true, whitelisted_merchant: merchant }),
+      })
+      if (!res.ok) throw new Error('Failed to lock')
+      setVaults(prev => prev.map(v => v.id === vault.id ? { ...v, is_locked: true, whitelisted_merchant: merchant } : v))
+      setMerchantInput(prev => { const n = { ...prev }; delete n[vault.id]; return n })
+    } catch (e) { alert(e instanceof Error ? e.message : 'Failed to lock') }
+    finally { setLockingVault(null) }
+  }, [merchantInput])
 
   const handleUnlink = useCallback(async (accountId: string, accountName: string) => {
     if (!confirm(`Unlink ${accountName}?`)) return
@@ -505,6 +631,17 @@ export default function DashboardPage() {
                 meta={meta}
                 vaults={vaultsByCategory(meta.key)}
                 mounted={mounted}
+                merchantInputs={merchantInput}
+                onLockToggle={handleLockToggle}
+                onConfirmLock={handleConfirmLock}
+                onMerchantChange={(id, val) => {
+                  if (val === '__cancel__') {
+                    setMerchantInput(prev => { const n = { ...prev }; delete n[id]; return n })
+                  } else {
+                    setMerchantInput(prev => ({ ...prev, [id]: val }))
+                  }
+                }}
+                lockingVault={lockingVault}
               />
             ))}
           </div>
@@ -570,7 +707,7 @@ export default function DashboardPage() {
                           <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 2 }}>{date}</div>
                         </div>
                         <div style={{ fontSize: 13, fontWeight: 700, color: isCredit ? '#10b981' : '#f8f8ff', flexShrink: 0 }}>
-                          {isCredit ? '+' : '-'}{fmt(dollars)}
+                          {isCredit ? '+' : '-'}{fmtExact(dollars)}
                         </div>
                       </div>
                     )
