@@ -34,6 +34,10 @@ export async function POST(request: Request) {
       logAuthorization(event.data.object as Stripe.Issuing.Authorization)
       break
 
+    case 'financial_connections.account.refreshed_balance':
+      await handleBalanceRefreshed(event.data.object as any)
+      break
+
     case 'financial_connections.account.refreshed_transactions':
       console.log('[FC] Transactions refreshed for account:', (event.data.object as any).id)
       break
@@ -140,6 +144,32 @@ async function approveOrDecline(
   }
 
   return NextResponse.json({ approved: approve })
+}
+
+async function handleBalanceRefreshed(fcAccount: any) {
+  const accountId = fcAccount.id
+  console.log('[FC] Balance refreshed for account:', accountId, 'status:', fcAccount.balance_refresh?.status)
+
+  if (fcAccount.balance_refresh?.status !== 'succeeded') return
+
+  try {
+    const account = await stripe.financialConnections.accounts.retrieve(accountId, { expand: ['balance'] })
+    const currentBalance = account?.balance?.current
+      ? Object.values(account.balance.current as Record<string, number>)[0] / 100
+      : null
+    const availableBalance = (account?.balance as any)?.cash?.available
+      ? Object.values((account.balance as any).cash.available as Record<string, number>)[0] / 100
+      : null
+
+    console.log('[FC] Updating balance in Supabase:', { accountId, currentBalance, availableBalance })
+
+    await (supabase as any)
+      .from('stripe_fc_accounts')
+      .update({ current_balance: currentBalance, available_balance: availableBalance, last_synced_at: new Date().toISOString() })
+      .eq('stripe_account_id', accountId)
+  } catch (err: any) {
+    console.error('[FC] Failed to update balance after refresh:', err.message)
+  }
 }
 
 function logAuthorization(authorization: Stripe.Issuing.Authorization) {

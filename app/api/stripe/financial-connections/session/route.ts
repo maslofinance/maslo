@@ -24,6 +24,7 @@ export async function POST(request: Request) {
         customer: await getOrCreateStripeCustomer(userId),
       },
       permissions: ['balances', 'ownership', 'transactions'],
+      prefetch: ['balances', 'ownership'],
       filters: {
         // Only link US depository accounts (checking + savings)
         account_subcategories: ['checking', 'savings'],

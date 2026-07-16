@@ -14,21 +14,24 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'userId and accountId required' }, { status: 400 })
     }
 
-    // Retrieve account from Stripe — balance may be null for many institutions (e.g. Bluevine)
+    // Retrieve account and trigger an explicit balance refresh as fallback
+    // (prefetch on session creation handles the common path; this covers edge cases)
     let account: any = null
     try {
+      // Kick off a refresh in case prefetch didn't cover it
+      await (stripe as any).financialConnections.accounts.refresh(accountId, {
+        features: ['balance'],
+      }).catch(() => {}) // non-fatal — refresh may already be in progress
+
       account = await stripe.financialConnections.accounts.retrieve(accountId, { expand: ['balance'] })
       console.log('FC account retrieved:', JSON.stringify({
         id: account.id,
         institution: account.institution_name,
-        display_name: account.display_name,
-        subcategory: account.subcategory,
         balance_refresh: account.balance_refresh,
         balance: account.balance,
       }))
     } catch (stripeErr: any) {
       console.error('Stripe FC retrieve error:', stripeErr.message)
-      // Save with minimal data rather than failing entirely
     }
 
     const currentBalance = account?.balance?.current
@@ -37,7 +40,6 @@ export async function POST(request: Request) {
     const availableBalance = account?.balance?.cash?.available
       ? Object.values(account.balance.cash.available as Record<string, number>)[0] / 100
       : null
-    console.log('Parsed balances:', { currentBalance, availableBalance })
 
     // Check if a row already exists for this user+account so we can update vs insert
     const { data: existing } = await supabase
