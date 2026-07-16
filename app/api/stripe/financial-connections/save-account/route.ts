@@ -18,6 +18,14 @@ export async function POST(request: Request) {
     let account: any = null
     try {
       account = await stripe.financialConnections.accounts.retrieve(accountId, { expand: ['balance'] })
+      console.log('FC account retrieved:', JSON.stringify({
+        id: account.id,
+        institution: account.institution_name,
+        display_name: account.display_name,
+        subcategory: account.subcategory,
+        balance_refresh: account.balance_refresh,
+        balance: account.balance,
+      }))
     } catch (stripeErr: any) {
       console.error('Stripe FC retrieve error:', stripeErr.message)
       // Save with minimal data rather than failing entirely
@@ -26,9 +34,10 @@ export async function POST(request: Request) {
     const currentBalance = account?.balance?.current
       ? Object.values(account.balance.current as Record<string, number>)[0] / 100
       : null
-    const availableBalance = account?.balance?.cash
-      ? Object.values(account.balance.cash as Record<string, number>)[0] / 100
+    const availableBalance = account?.balance?.cash?.available
+      ? Object.values(account.balance.cash.available as Record<string, number>)[0] / 100
       : null
+    console.log('Parsed balances:', { currentBalance, availableBalance })
 
     // Check if a row already exists for this user+account so we can update vs insert
     const { data: existing } = await supabase
