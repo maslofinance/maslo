@@ -212,7 +212,9 @@ export default function DashboardPage() {
   const [vaults, setVaults] = useState<Vault[]>([])
   const [profile, setProfile] = useState<Profile | null>(null)
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([])
-  const [fcAccounts, setFcAccounts] = useState<{ id: string; name: string; current_balance: number | null; available_balance: number | null }[]>([])
+  const [fcAccounts, setFcAccounts] = useState<{ id: string; stripe_account_id: string; name: string; current_balance: number | null; available_balance: number | null }[]>([])
+  const [transactions, setTransactions] = useState<{ id: string; date: number; amount: number; description: string; category: string | null }[]>([])
+  const [loadingTxs, setLoadingTxs] = useState(false)
   const [userEmail, setUserEmail] = useState('')
   const [linkingMore, setLinkingMore] = useState(false)
   const [unlinking, setUnlinking] = useState<string | null>(null)
@@ -230,7 +232,7 @@ export default function DashboardPage() {
         supabase.from('profiles').select('email, monthly_income, budget_style, notification_tone, onboarding_complete, onboarding_step').eq('id', uid).single(),
         supabase.from('vaults').select('*').eq('user_id', uid).eq('is_active', true).order('priority'),
         supabase.from('bank_accounts').select('name, current_balance, available_balance').eq('user_id', uid).eq('is_active', true),
-        (supabase as any).from('stripe_fc_accounts').select('id, name, current_balance, available_balance').eq('user_id', uid).eq('is_active', true),
+        (supabase as any).from('stripe_fc_accounts').select('id, stripe_account_id, name, current_balance, available_balance').eq('user_id', uid).eq('is_active', true),
       ])
 
       const p = profileRes.data
@@ -241,8 +243,27 @@ export default function DashboardPage() {
       setProfile(p)
       setVaults((vaultsRes.data ?? []) as Vault[])
       setBankAccounts((accountsRes.data ?? []) as BankAccount[])
-      setFcAccounts(fcRes.data ?? [])
+      const accounts = fcRes.data ?? []
+      setFcAccounts(accounts)
       setChecking(false)
+
+      // Fetch transactions for all linked FC accounts (non-blocking)
+      if (accounts.length > 0) {
+        setLoadingTxs(true)
+        const token = session.access_token
+        Promise.all(
+          accounts.map((a: any) =>
+            fetch(`/api/stripe/financial-connections/transactions?account_id=${a.stripe_account_id}`, {
+              headers: { 'Authorization': `Bearer ${token}` },
+            }).then(r => r.json()).catch(() => ({ transactions: [] }))
+          )
+        ).then(results => {
+          const all = results.flatMap((r: any) => r.transactions ?? [])
+          all.sort((a: any, b: any) => b.date - a.date)
+          setTransactions(all.slice(0, 50))
+          setLoadingTxs(false)
+        })
+      }
     })
   }, [router])
 
@@ -293,7 +314,7 @@ export default function DashboardPage() {
         body: JSON.stringify({ userId: uid, accountId }),
       })
       // Refresh FC accounts
-      const { data: fresh } = await (supabase as any).from('stripe_fc_accounts').select('id, name, current_balance, available_balance').eq('user_id', uid!).eq('is_active', true)
+      const { data: fresh } = await (supabase as any).from('stripe_fc_accounts').select('id, stripe_account_id, name, current_balance, available_balance').eq('user_id', uid!).eq('is_active', true)
       setFcAccounts(fresh ?? [])
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Failed to link account')
@@ -514,16 +535,45 @@ export default function DashboardPage() {
               )}
             </div>
 
-            {/* Transactions placeholder */}
+            {/* Transactions */}
             <div style={{ background: '#0d0d24', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 18, overflow: 'hidden' }}>
-              <div style={{ padding: '16px 20px', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+              <div style={{ padding: '16px 20px', borderBottom: '1px solid rgba(255,255,255,0.05)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div style={{ fontSize: 13, fontWeight: 700, color: '#f8f8ff' }}>Recent Transactions</div>
+                {loadingTxs && <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)' }}>Loading…</div>}
               </div>
-              <div style={{ padding: '32px 20px', textAlign: 'center' as const }}>
-                <div style={{ fontSize: 28, marginBottom: 8 }}>📭</div>
-                <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.3)', marginBottom: 4 }}>No transactions yet</div>
-                <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.2)' }}>They&apos;ll appear here as Maslo tracks your spending</div>
-              </div>
+              {loadingTxs ? (
+                <div style={{ padding: '24px 20px', textAlign: 'center' as const }}>
+                  <div style={{ width: 24, height: 24, margin: '0 auto 8px', border: '2px solid rgba(124,58,237,0.2)', borderTop: '2px solid #7c3aed', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+                  <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.25)' }}>Pulling 180 days…</div>
+                </div>
+              ) : transactions.length === 0 ? (
+                <div style={{ padding: '28px 20px', textAlign: 'center' as const }}>
+                  <div style={{ fontSize: 26, marginBottom: 8 }}>📭</div>
+                  <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.3)' }}>No transactions found</div>
+                  <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.2)', marginTop: 4 }}>Your bank may not expose transaction data</div>
+                </div>
+              ) : (
+                <div style={{ maxHeight: 420, overflowY: 'auto' as const }}>
+                  {transactions.map(tx => {
+                    const isCredit = tx.amount < 0
+                    const dollars = Math.abs(tx.amount) / 100
+                    const date = new Date(tx.date * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                    return (
+                      <div key={tx.id} style={{ padding: '11px 20px', borderBottom: '1px solid rgba(255,255,255,0.04)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontSize: 12, fontWeight: 600, color: '#f8f8ff', whiteSpace: 'nowrap' as const, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {tx.description || 'Transaction'}
+                          </div>
+                          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 2 }}>{date}</div>
+                        </div>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: isCredit ? '#10b981' : '#f8f8ff', flexShrink: 0 }}>
+                          {isCredit ? '+' : '-'}{fmt(dollars)}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
             </div>
 
             {/* Profile summary */}
