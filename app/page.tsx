@@ -301,6 +301,7 @@ export default function DashboardPage() {
   const [fcAccounts, setFcAccounts] = useState<{ id: string; stripe_account_id: string; name: string; current_balance: number | null; available_balance: number | null; subtype: string | null }[]>([])
   const [transactions, setTransactions] = useState<{ id: string; date: number; amount: number; description: string; category: string | null }[]>([])
   const [loadingTxs, setLoadingTxs] = useState(false)
+  const [txError, setTxError] = useState('')
   const [syncing, setSyncing] = useState(false)
   const [userEmail, setUserEmail] = useState('')
   const [linkingMore, setLinkingMore] = useState(false)
@@ -350,20 +351,30 @@ export default function DashboardPage() {
         if (refreshed) setFcAccounts(refreshed)
       }).finally(() => setSyncing(false))
 
-      // Fetch transactions from checking accounts only (not savings)
-      const checkingOnly = accounts.filter((a: any) => a.subtype === 'checking')
-      if (checkingOnly.length > 0) {
+      // Fetch transactions — checking accounts first, fall back to all accounts if none typed
+      const checkingOnly = accounts.filter((a: any) => a.subtype === 'checking' || a.subtype === null || a.subtype === undefined)
+      const txAccounts = checkingOnly.length > 0 ? checkingOnly : accounts
+      if (txAccounts.length > 0) {
         setLoadingTxs(true)
+        setTxError('')
         const token = session.access_token
         Promise.all(
-          checkingOnly.map((a: any) =>
+          txAccounts.map((a: any) =>
             fetch(`/api/stripe/financial-connections/transactions?account_id=${a.stripe_account_id}`, {
               headers: { 'Authorization': `Bearer ${token}` },
-            }).then(r => r.json()).catch(() => ({ transactions: [] }))
+            }).then(async r => {
+              const data = await r.json()
+              if (data.error) console.error(`[Tx] ${a.name}: ${data.error}`)
+              return data
+            }).catch(err => { console.error(`[Tx] fetch failed:`, err); return { transactions: [] } })
           )
         ).then(results => {
           const all = results.flatMap((r: any) => r.transactions ?? [])
           all.sort((a: any, b: any) => b.date - a.date)
+          if (all.length === 0) {
+            const errors = results.filter((r: any) => r.error).map((r: any) => r.error)
+            if (errors.length) setTxError(errors[0])
+          }
           setTransactions(all.slice(0, 50))
           setLoadingTxs(false)
         })
@@ -758,7 +769,11 @@ export default function DashboardPage() {
                 <div style={{ padding: '28px 20px', textAlign: 'center' as const }}>
                   <div style={{ fontSize: 26, marginBottom: 8 }}>📭</div>
                   <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.3)' }}>No transactions found</div>
-                  <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.2)', marginTop: 4 }}>Your bank may not expose transaction data</div>
+                  {txError ? (
+                    <div style={{ fontSize: 11, color: 'rgba(245,158,11,0.7)', marginTop: 6, padding: '6px 12px', background: 'rgba(245,158,11,0.08)', borderRadius: 8 }}>{txError}</div>
+                  ) : (
+                    <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.2)', marginTop: 4 }}>Your bank may not expose transaction data via Stripe</div>
+                  )}
                 </div>
               ) : (
                 <div style={{ maxHeight: 420, overflowY: 'auto' as const }}>
