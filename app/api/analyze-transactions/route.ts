@@ -28,7 +28,9 @@ export async function POST(request: Request) {
     const allTxs: RawFCTransaction[] = []
 
     for (const acct of accounts) {
-      // Non-fatal refresh
+      await (stripe as any).financialConnections.accounts.subscribe(acct.stripe_account_id, {
+        features: ['transactions'],
+      }).catch(() => {})
       await (stripe as any).financialConnections.accounts.refresh(acct.stripe_account_id, {
         features: ['transactions'],
       }).catch(() => {})

@@ -10,12 +10,14 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'account_id required' }, { status: 400 })
     }
 
-    // Refresh transactions — non-fatal if bank doesn't support it or account is inactive
+    // Subscribe first (enables transaction access), then refresh (fetches latest data)
+    await (stripe as any).financialConnections.accounts.subscribe(accountId, {
+      features: ['transactions'],
+    }).catch((e: any) => console.warn('[Tx] subscribe skipped:', e?.message))
+
     await (stripe as any).financialConnections.accounts.refresh(accountId, {
       features: ['transactions'],
-    }).catch((e: any) => {
-      console.warn('[Tx] refresh skipped:', e?.message)
-    })
+    }).catch((e: any) => console.warn('[Tx] refresh skipped:', e?.message))
 
     // Pull all transactions from the last 180 days, paginating through all pages
     const cutoff = Math.floor(Date.now() / 1000) - 180 * 24 * 60 * 60
