@@ -310,13 +310,13 @@ export default function DashboardPage() {
   const [merchantInput, setMerchantInput] = useState<Record<string, string>>({})
   const [analysis, setAnalysis] = useState<any>(null)
   const [analyzingTxs, setAnalyzingTxs] = useState(false)
-  const [rentNudgeAnswer, setRentNudgeAnswer] = useState<Record<number, 'yes' | 'no' | null>>({})
+  const [rentNudgeAnswer, setRentNudgeAnswer] = useState<Record<number, 'yes' | 'no' | null>>(() => {
+    try { return JSON.parse(localStorage.getItem('maslo_rent_nudge_answers') ?? '{}') } catch { return {} }
+  })
+  const [rentNudgeDueDay, setRentNudgeDueDay] = useState<Record<number, string>>({})
   const [rentNudgeManual, setRentNudgeManual] = useState<Record<number, string>>({})
   const [incomeAnswers, setIncomeAnswers] = useState<Record<number, 'yes' | 'no'>>(() => {
     try { return JSON.parse(localStorage.getItem('maslo_income_answers') ?? '{}') } catch { return {} }
-  })
-  const [rentNudgeAnswersPersisted, setRentNudgeAnswersPersisted] = useState<Record<number, 'yes' | 'no' | null>>(() => {
-    try { return JSON.parse(localStorage.getItem('maslo_rent_answers') ?? '{}') } catch { return {} }
   })
 
   const setIncomeAnswersPersisted = (updater: (prev: Record<number, 'yes' | 'no'>) => Record<number, 'yes' | 'no'>) => {
@@ -932,7 +932,7 @@ export default function DashboardPage() {
                         <div key={i} style={{ padding: '8px 12px', background: 'rgba(255,255,255,0.04)', borderRadius: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                           <div>
                             <div style={{ fontSize: 12, fontWeight: 700, color: '#f8f8ff' }}>Rent</div>
-                            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>due ~{ordinal(Number(nudge.due_day))} · confirmed</div>
+                            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>due ~{ordinal(Number(rentNudgeDueDay[i] ?? nudge.due_day))} · confirmed</div>
                           </div>
                           <div style={{ fontSize: 14, fontWeight: 800, color: '#f8f8ff' }}>{fmtExact(Number(nudge.amount))}/mo</div>
                         </div>
@@ -950,9 +950,39 @@ export default function DashboardPage() {
                           <div style={{ fontSize: 11, color: 'rgba(196,181,253,0.8)', marginBottom: 8 }}>
                             We noticed a recurring charge of {fmtExact(Number(nudge.amount))}/mo — {nudge.text}
                           </div>
+                          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', marginBottom: 8 }}>
+                            What day of the month is it due?
+                            <input
+                              type="number" min="1" max="31"
+                              value={rentNudgeDueDay[i] ?? ''}
+                              placeholder="e.g. 1"
+                              onChange={e => setRentNudgeDueDay(p => ({ ...p, [i]: e.target.value }))}
+                              style={{ marginLeft: 8, width: 48, padding: '3px 8px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 6, color: '#f8f8ff', fontSize: 12, outline: 'none' }}
+                            />
+                          </div>
                           <div style={{ display: 'flex', gap: 8 }}>
-                            <button onClick={() => setRentNudgeAnswer(p => ({ ...p, [i]: 'yes' }))} style={{ padding: '5px 16px', background: 'rgba(124,58,237,0.6)', border: 'none', borderRadius: 99, color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>Yes</button>
-                            <button onClick={() => setRentNudgeAnswer(p => ({ ...p, [i]: 'no' }))} style={{ padding: '5px 16px', background: 'rgba(255,255,255,0.06)', border: 'none', borderRadius: 99, color: 'rgba(255,255,255,0.5)', fontSize: 12, cursor: 'pointer' }}>No</button>
+                            <button onClick={async () => {
+                              const dueDay = rentNudgeDueDay[i] ?? nudge.due_day
+                              const next = { ...rentNudgeAnswer, [i]: 'yes' as const }
+                              setRentNudgeAnswer(next)
+                              try { localStorage.setItem('maslo_rent_nudge_answers', JSON.stringify(next)) } catch {}
+                              // Push confirmed amount + due date to vault
+                              const { data: { session: s } } = await supabase.auth.getSession()
+                              if (s) {
+                                await fetch('/api/vaults/sync-detected', {
+                                  method: 'POST',
+                                  headers: { 'Authorization': `Bearer ${s.access_token}`, 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ rent: { amount: nudge.amount, due_day: dueDay } }),
+                                })
+                                const { data: updatedVaults } = await supabase.from('vaults').select('id, name, icon, current_balance, target_amount, due_day, lock_type, category, description, priority, is_locked, whitelisted_merchant').eq('user_id', s.user.id).eq('is_active', true).order('priority', { ascending: true })
+                                if (updatedVaults) setVaults(updatedVaults as unknown as Vault[])
+                              }
+                            }} style={{ padding: '5px 16px', background: 'rgba(124,58,237,0.6)', border: 'none', borderRadius: 99, color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>Yes</button>
+                            <button onClick={() => {
+                              const next = { ...rentNudgeAnswer, [i]: 'no' as const }
+                              setRentNudgeAnswer(next)
+                              try { localStorage.setItem('maslo_rent_nudge_answers', JSON.stringify(next)) } catch {}
+                            }} style={{ padding: '5px 16px', background: 'rgba(255,255,255,0.06)', border: 'none', borderRadius: 99, color: 'rgba(255,255,255,0.5)', fontSize: 12, cursor: 'pointer' }}>No</button>
                           </div>
                         </div>
                       )

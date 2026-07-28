@@ -49,7 +49,10 @@ export async function POST(req: NextRequest) {
         updates.push({
           id: rentVault.id,
           target_amount: parseFloat(payload.rent.amount),
-          ...(payload.rent.due_day ? { due_day: parseInt(payload.rent.due_day) } : {}),
+          // Only set due_day if user explicitly provided one and vault doesn't already have one
+          ...(!rentVault.due_day && payload.rent.due_day ? { due_day: parseInt(payload.rent.due_day) } : {}),
+          // If user explicitly confirmed a due_day (came from nudge), always use it
+          ...(payload.rent.due_day && payload.rent.due_day !== 'auto' ? { due_day: parseInt(payload.rent.due_day) } : {}),
         })
       }
     }
