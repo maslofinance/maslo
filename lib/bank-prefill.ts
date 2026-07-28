@@ -282,7 +282,7 @@ export function analyzeBankData(txs: RawFCTransaction[]): BankPrefillResult {
       return {
         value:          monthly.toFixed(2),
         confidence:     confident ? 'high' as Confidence : 'medium' as Confidence,
-        source:         `${key.trim()} · ${g.amounts.length} deposit${g.amounts.length > 1 ? 's' : ''} avg $${perCheck.toFixed(2)}`,
+        source:         `${key.trim()} · ${g.amounts.length} deposit${g.amounts.length > 1 ? 's' : ''} avg $${perCheck.toFixed(2)} · ${freq}`,
         freq,
         last30DayTotal,
       }
