@@ -308,6 +308,8 @@ export default function DashboardPage() {
   const [unlinking, setUnlinking] = useState<string | null>(null)
   const [lockingVault, setLockingVault] = useState<string | null>(null)
   const [merchantInput, setMerchantInput] = useState<Record<string, string>>({})
+  const [analysis, setAnalysis] = useState<any>(null)
+  const [analyzingTxs, setAnalyzingTxs] = useState(false)
 
   // ── Auth + data load ────────────────────────────────────────────
   useEffect(() => {
@@ -377,6 +379,17 @@ export default function DashboardPage() {
           }
           setTransactions(all.slice(0, 50))
           setLoadingTxs(false)
+
+          // Run analysis if we got transactions
+          if (all.length > 0) {
+            setAnalyzingTxs(true)
+            fetch('/api/analyze-transactions', {
+              method: 'POST',
+              headers: { 'Authorization': `Bearer ${token}` },
+            }).then(r => r.json()).then(data => {
+              if (data.analysis) setAnalysis(data.analysis)
+            }).catch(() => {}).finally(() => setAnalyzingTxs(false))
+          }
         })
       }
     })
@@ -753,6 +766,74 @@ export default function DashboardPage() {
                 ))
               )}
             </div>
+
+            {/* Maslo Analysis */}
+            {(analysis || analyzingTxs) && (
+              <div style={{ background: '#0d0d24', border: '1px solid rgba(124,58,237,0.2)', borderRadius: 18, overflow: 'hidden' }}>
+                <div style={{ padding: '16px 20px', borderBottom: '1px solid rgba(255,255,255,0.05)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#c4b5fd' }}>Maslo Detected</div>
+                  {analyzingTxs && <div style={{ fontSize: 11, color: 'rgba(124,58,237,0.5)' }}>Analyzing…</div>}
+                </div>
+                {analyzingTxs && !analysis ? (
+                  <div style={{ padding: '20px', textAlign: 'center' as const }}>
+                    <div style={{ width: 20, height: 20, margin: '0 auto', border: '2px solid rgba(124,58,237,0.2)', borderTop: '2px solid #7c3aed', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+                  </div>
+                ) : analysis && (
+                  <div style={{ padding: '12px 20px 16px', display: 'flex', flexDirection: 'column' as const, gap: 8 }}>
+                    {analysis.income && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: 'rgba(16,185,129,0.06)', borderRadius: 10 }}>
+                        <div>
+                          <div style={{ fontSize: 12, fontWeight: 700, color: '#10b981' }}>Income</div>
+                          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>{analysis.income.source}</div>
+                        </div>
+                        <div style={{ fontSize: 14, fontWeight: 800, color: '#10b981' }}>${Number(analysis.income.value).toLocaleString()}/mo</div>
+                      </div>
+                    )}
+                    {analysis.rent && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: 'rgba(255,255,255,0.04)', borderRadius: 10 }}>
+                        <div>
+                          <div style={{ fontSize: 12, fontWeight: 700, color: '#f8f8ff' }}>Rent</div>
+                          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>{analysis.rent.source}</div>
+                        </div>
+                        <div style={{ fontSize: 14, fontWeight: 800, color: '#f8f8ff' }}>${Number(analysis.rent.value).toLocaleString()}/mo</div>
+                      </div>
+                    )}
+                    {analysis.cars?.map((car: any, i: number) => (
+                      <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: 'rgba(255,255,255,0.04)', borderRadius: 10 }}>
+                        <div>
+                          <div style={{ fontSize: 12, fontWeight: 700, color: '#f8f8ff' }}>Car {car.type === 'lease' ? 'Lease' : 'Payment'}</div>
+                          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>{car.lender}</div>
+                        </div>
+                        <div style={{ fontSize: 14, fontWeight: 800, color: '#f8f8ff' }}>${Number(car.amount).toLocaleString()}/mo</div>
+                      </div>
+                    ))}
+                    {analysis.utilities?.map((u: any, i: number) => (
+                      <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: 'rgba(255,255,255,0.04)', borderRadius: 10 }}>
+                        <div>
+                          <div style={{ fontSize: 12, fontWeight: 700, color: '#f8f8ff' }}>{u.type}</div>
+                          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>{u.source}</div>
+                        </div>
+                        <div style={{ fontSize: 14, fontWeight: 800, color: '#f8f8ff' }}>${Number(u.amount).toLocaleString()}/mo</div>
+                      </div>
+                    ))}
+                    {analysis.insurances?.map((ins: any, i: number) => (
+                      <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: 'rgba(255,255,255,0.04)', borderRadius: 10 }}>
+                        <div>
+                          <div style={{ fontSize: 12, fontWeight: 700, color: '#f8f8ff' }}>{ins.type} Insurance</div>
+                          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>{ins.source}</div>
+                        </div>
+                        <div style={{ fontSize: 14, fontWeight: 800, color: '#f8f8ff' }}>${Number(ins.amount).toLocaleString()}/mo</div>
+                      </div>
+                    ))}
+                    {analysis.nudges?.map((nudge: string, i: number) => (
+                      <div key={i} style={{ fontSize: 11, color: 'rgba(196,181,253,0.6)', padding: '6px 12px', background: 'rgba(124,58,237,0.06)', borderRadius: 8 }}>
+                        {nudge}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Transactions */}
             <div style={{ background: '#0d0d24', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 18, overflow: 'hidden' }}>
