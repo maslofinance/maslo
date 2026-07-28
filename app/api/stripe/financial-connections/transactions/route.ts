@@ -10,9 +10,11 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'account_id required' }, { status: 400 })
     }
 
-    // Refresh transactions first to get the latest data
-    await stripe.financialConnections.accounts.refresh(accountId, {
+    // Refresh transactions — non-fatal if bank doesn't support it or account is inactive
+    await (stripe as any).financialConnections.accounts.refresh(accountId, {
       features: ['transactions'],
+    }).catch((e: any) => {
+      console.warn('[Tx] refresh skipped:', e?.message)
     })
 
     // Pull all transactions from the last 180 days, paginating through all pages
