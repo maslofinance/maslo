@@ -312,6 +312,7 @@ export default function DashboardPage() {
   const [analyzingTxs, setAnalyzingTxs] = useState(false)
   const [rentNudgeAnswer, setRentNudgeAnswer] = useState<Record<number, 'yes' | 'no' | null>>({})
   const [rentNudgeManual, setRentNudgeManual] = useState<Record<number, string>>({})
+  const [incomeAnswers, setIncomeAnswers] = useState<Record<number, 'yes' | 'no'>>({})
 
   // ── Auth + data load ────────────────────────────────────────────
   useEffect(() => {
@@ -533,7 +534,15 @@ export default function DashboardPage() {
   const checkingBalance  = checkingAccounts.reduce((s, a) => s + (a.current_balance ?? 0), 0)
   const savingsBalance   = savingsAccounts.reduce((s, a) => s + (a.current_balance ?? 0), 0)
   const totalBalance = allLinkedAccounts.reduce((s, a) => s + (a.current_balance ?? 0), 0)
-  const monthlyIncome = profile?.monthly_income ?? 0
+  const confirmedIncome30d = analysis?.incomes
+    ? (analysis.incomes as any[]).reduce((sum: number, inc: any, i: number) => {
+        return incomeAnswers[i] === 'yes' ? sum + (inc.last30DayTotal ?? 0) : sum
+      }, 0)
+    : null
+  const anyIncomeAnswered = analysis?.incomes && Object.keys(incomeAnswers).length > 0
+  const monthlyIncome = anyIncomeAnswered && confirmedIncome30d !== null
+    ? confirmedIncome30d
+    : (profile?.monthly_income ?? 0)
   const vaultsByCategory = (cat: VaultCategory) => vaults.filter(v => v.category === cat)
   const debtVaults = vaultsByCategory('debt')
   const totalDebtTarget = debtVaults.reduce((s, v) => s + v.target_amount, 0)
@@ -688,7 +697,8 @@ export default function DashboardPage() {
             <div style={{ display: 'flex', gap: 32, flexWrap: 'wrap' as const }}>
               <div>
                 <p style={{ margin: '0 0 6px', fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.35)', letterSpacing: '0.07em' }}>MONTHLY INCOME</p>
-                <div style={{ fontSize: 24, fontWeight: 800, color: '#10b981' }}>{monthlyIncome ? fmt(monthlyIncome) : '—'}</div>
+                <div style={{ fontSize: 24, fontWeight: 800, color: '#10b981' }}>{monthlyIncome ? fmtExact(monthlyIncome) : '—'}</div>
+                <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.2)', marginTop: 2 }}>{anyIncomeAnswered ? 'last 30 days · confirmed' : 'from onboarding'}</div>
               </div>
               <div>
                 <p style={{ margin: '0 0 6px', fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.35)', letterSpacing: '0.07em' }}>VAULTS FUNDED</p>
@@ -784,16 +794,34 @@ export default function DashboardPage() {
                   </div>
                 ) : analysis && (
                   <div style={{ padding: '12px 20px 16px', display: 'flex', flexDirection: 'column' as const, gap: 8 }}>
-                    {/* Income — one row per source */}
-                    {analysis.incomes?.map((inc: any, i: number) => (
-                      <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: 'rgba(16,185,129,0.06)', borderRadius: 10 }}>
-                        <div>
-                          <div style={{ fontSize: 12, fontWeight: 700, color: '#10b981' }}>Income</div>
-                          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>{inc.source}</div>
+                    {/* Income — one row per source with Yes/No */}
+                    {analysis.incomes?.map((inc: any, i: number) => {
+                      const answered = incomeAnswers[i]
+                      if (answered === 'no') return null
+                      return (
+                        <div key={i} style={{ padding: '10px 12px', background: 'rgba(16,185,129,0.06)', borderRadius: 10 }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: answered === 'yes' ? 0 : 8 }}>
+                            <div>
+                              <div style={{ fontSize: 12, fontWeight: 700, color: '#10b981' }}>Income</div>
+                              <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>{inc.source}</div>
+                              {inc.last30DayTotal > 0 && (
+                                <div style={{ fontSize: 11, color: 'rgba(16,185,129,0.6)', marginTop: 2 }}>
+                                  {fmtExact(inc.last30DayTotal)} last 30 days
+                                </div>
+                              )}
+                            </div>
+                            <div style={{ fontSize: 14, fontWeight: 800, color: '#10b981', flexShrink: 0 }}>{fmtExact(Number(inc.value))}/mo avg</div>
+                          </div>
+                          {!answered && (
+                            <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                              <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginRight: 4, alignSelf: 'center' }}>Is this income?</div>
+                              <button onClick={() => setIncomeAnswers(p => ({ ...p, [i]: 'yes' }))} style={{ padding: '4px 14px', background: 'rgba(16,185,129,0.3)', border: 'none', borderRadius: 99, color: '#10b981', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>Yes</button>
+                              <button onClick={() => setIncomeAnswers(p => ({ ...p, [i]: 'no' }))} style={{ padding: '4px 14px', background: 'rgba(255,255,255,0.06)', border: 'none', borderRadius: 99, color: 'rgba(255,255,255,0.4)', fontSize: 11, cursor: 'pointer' }}>No</button>
+                            </div>
+                          )}
                         </div>
-                        <div style={{ fontSize: 14, fontWeight: 800, color: '#10b981' }}>{fmtExact(Number(inc.value))}/mo</div>
-                      </div>
-                    ))}
+                      )
+                    })}
                     {/* Rent */}
                     {analysis.rent && (
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: 'rgba(255,255,255,0.04)', borderRadius: 10 }}>

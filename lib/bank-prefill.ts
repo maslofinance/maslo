@@ -44,7 +44,7 @@ export interface CarPrefillEntry {
 }
 
 export interface BankPrefillResult {
-  incomes:      Array<PrefillField & { freq: Freq }>
+  incomes:      Array<PrefillField & { freq: Freq; last30DayTotal: number }>
   rent?:        PrefillField & { due_day: string }
   utilities:    PrefillEntry[]
   insurances:   PrefillEntry[]
@@ -263,6 +263,7 @@ export function analyzeBankData(txs: RawFCTransaction[]): BankPrefillResult {
   }
 
   const multipliers: Record<Freq, number> = { weekly: 52/12, biweekly: 26/12, semimonthly: 2, monthly: 1 }
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
 
   result.incomes = [...incomeGroups.entries()]
     .filter(([, g]) => g.amounts.length >= 1)
@@ -275,11 +276,15 @@ export function analyzeBankData(txs: RawFCTransaction[]): BankPrefillResult {
       const perCheck = avgAmount(g.amounts)
       const monthly  = perCheck * multipliers[freq]
       const confident = isConsistentAmount(g.amounts, 0.08) && g.amounts.length >= 3 && g.signals >= 1
+      const last30DayTotal = g.dates.reduce((sum, date, idx) => {
+        return date >= thirtyDaysAgo ? sum + g.amounts[idx] : sum
+      }, 0)
       return {
-        value:      monthly.toFixed(2),
-        confidence: confident ? 'high' as Confidence : 'medium' as Confidence,
-        source:     `${key.trim()} · ${g.amounts.length} deposit${g.amounts.length > 1 ? 's' : ''} avg $${perCheck.toFixed(2)}`,
+        value:          monthly.toFixed(2),
+        confidence:     confident ? 'high' as Confidence : 'medium' as Confidence,
+        source:         `${key.trim()} · ${g.amounts.length} deposit${g.amounts.length > 1 ? 's' : ''} avg $${perCheck.toFixed(2)}`,
         freq,
+        last30DayTotal,
       }
     })
 

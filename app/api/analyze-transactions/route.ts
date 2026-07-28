@@ -16,11 +16,13 @@ export async function POST(request: Request) {
     const { data: { user }, error: authErr } = await supabase.auth.getUser(token)
     if (authErr || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-    const { data: accounts } = await supabase
+    // Only analyze checking accounts — savings accounts are balance-only
+    const { data: allAccounts } = await supabase
       .from('stripe_fc_accounts')
-      .select('stripe_account_id')
+      .select('stripe_account_id, subtype')
       .eq('user_id', user.id)
       .eq('is_active', true)
+    const accounts = (allAccounts ?? []).filter(a => a.subtype === 'checking' || a.subtype === null)
 
     if (!accounts?.length) return NextResponse.json({ error: 'No linked accounts' }, { status: 400 })
 
