@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <defs>
+    <linearGradient id="g1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#4f46e5"/>
+      <stop offset="100%" style="stop-color:#a855f7"/>
+    </linearGradient>
+  </defs>
+  <!-- Wing shape approximating the Maslo logo -->
+  <path d="M20 10 C20 10 15 40 25 60 C35 80 60 90 75 85 C90 80 85 60 70 50 C55 40 50 30 55 15 C45 20 30 15 20 10Z" fill="url(#g1)"/>
+  <path d="M40 25 C40 25 35 50 42 65 C49 80 65 85 72 80 C64 72 58 60 60 45 C52 48 44 38 40 25Z" fill="#c084fc" opacity="0.7"/>
+  <path d="M52 35 C52 35 48 55 54 68 C58 76 68 78 68 78 C62 70 58 60 60 47 C56 50 53 43 52 35Z" fill="#e879f9" opacity="0.5"/>
+</svg>

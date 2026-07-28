@@ -342,19 +342,31 @@ export default function DashboardPage() {
       setFcAccounts(accounts)
       setChecking(false)
 
-      // Sync balances in background, then refresh FC accounts from DB
+      // Sync balances → fund vaults from checking balance → refresh UI
       setSyncing(true)
-      fetch('/api/stripe/financial-connections/sync', {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${session.access_token}` },
-      }).then(async () => {
-        const { data: refreshed } = await (supabase as any)
-          .from('stripe_fc_accounts')
-          .select('id, stripe_account_id, name, current_balance, available_balance, subtype')
-          .eq('user_id', uid)
-          .eq('is_active', true)
-        if (refreshed) setFcAccounts(refreshed)
-      }).finally(() => setSyncing(false))
+      const authHeader = { 'Authorization': `Bearer ${session.access_token}` }
+      fetch('/api/stripe/financial-connections/sync', { method: 'POST', headers: authHeader })
+        .then(async () => {
+          // Re-read updated FC balances
+          const { data: refreshed } = await (supabase as any)
+            .from('stripe_fc_accounts')
+            .select('id, stripe_account_id, name, current_balance, available_balance, subtype')
+            .eq('user_id', uid)
+            .eq('is_active', true)
+          if (refreshed) setFcAccounts(refreshed)
+
+          // Allocate checking balance across vaults in priority order
+          await fetch('/api/vaults/fund', { method: 'POST', headers: authHeader })
+
+          // Reload vaults with updated balances
+          const { data: updatedVaults } = await supabase
+            .from('vaults')
+            .select('id, name, icon, current_balance, target_amount, due_day, lock_type, category, description, priority, is_locked, whitelisted_merchant')
+            .eq('user_id', uid)
+            .eq('is_active', true)
+            .order('priority', { ascending: true })
+          if (updatedVaults) setVaults(updatedVaults as unknown as Vault[])
+        }).finally(() => setSyncing(false))
 
       // Fetch transactions — checking accounts first, fall back to all accounts if none typed
       const checkingOnly = accounts.filter((a: any) => a.subtype === 'checking' || a.subtype === null || a.subtype === undefined)
@@ -389,10 +401,32 @@ export default function DashboardPage() {
             fetch('/api/analyze-transactions', {
               method: 'POST',
               headers: { 'Authorization': `Bearer ${token}` },
-            }).then(r => r.json()).then(data => {
-              console.log('[Analysis]', JSON.stringify(data))
-              if (data.analysis) setAnalysis(data.analysis)
-              else setAnalysis({ _error: data.error ?? 'no analysis returned', _tx_count: data.tx_count })
+            }).then(r => r.json()).then(async data => {
+              if (data.analysis) {
+                setAnalysis(data.analysis)
+                // Push detected amounts to vault targets
+                const { rent, cars, utilities, insurances } = data.analysis
+                if (rent || cars?.length) {
+                  await fetch('/api/vaults/sync-detected', {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ rent, cars, utilities, insurances }),
+                  })
+                  // Reload vaults with synced targets
+                  const { data: { session: s } } = await supabase.auth.getSession()
+                  if (s) {
+                    const { data: updatedVaults } = await supabase
+                      .from('vaults')
+                      .select('id, name, icon, current_balance, target_amount, due_day, lock_type, category, description, priority, is_locked, whitelisted_merchant')
+                      .eq('user_id', s.user.id)
+                      .eq('is_active', true)
+                      .order('priority', { ascending: true })
+                    if (updatedVaults) setVaults(updatedVaults as unknown as Vault[])
+                  }
+                }
+              } else {
+                setAnalysis({ _error: data.error ?? 'no analysis returned', _tx_count: data.tx_count })
+              }
             }).catch((e) => { console.error('[Analysis] fetch failed', e); setAnalysis({ _error: String(e) }) }).finally(() => setAnalyzingTxs(false))
           }
         })
