@@ -6,8 +6,8 @@ export const metadata: Metadata = {
   title: 'Maslo — Financial Fitness',
   description: 'The gastric bypass of banking apps.',
   icons: {
-    icon: '/icon.svg',
-    apple: '/icon.svg',
+    icon: '/logo.png',
+    apple: '/logo.png',
   },
 }
 

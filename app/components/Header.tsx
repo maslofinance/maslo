@@ -48,13 +48,7 @@ export default function Header() {
       }}>
         {/* Logo */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <div style={{
-            width: 28, height: 28,
-            background: 'linear-gradient(135deg, #7c3aed, #a78bfa)',
-            borderRadius: 8,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 14, fontWeight: 900, color: '#fff',
-          }}>M</div>
+          <img src="/logo.png" alt="Maslo" style={{ width: 32, height: 32, objectFit: 'contain' }} />
           <span style={{
             fontSize: 16, fontWeight: 800, letterSpacing: '-0.3px',
             background: 'linear-gradient(135deg, #fff 0%, #a78bfa 100%)',
