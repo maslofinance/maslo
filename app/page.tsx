@@ -387,8 +387,10 @@ export default function DashboardPage() {
               method: 'POST',
               headers: { 'Authorization': `Bearer ${token}` },
             }).then(r => r.json()).then(data => {
+              console.log('[Analysis]', JSON.stringify(data))
               if (data.analysis) setAnalysis(data.analysis)
-            }).catch(() => {}).finally(() => setAnalyzingTxs(false))
+              else setAnalysis({ _error: data.error ?? 'no analysis returned', _tx_count: data.tx_count })
+            }).catch((e) => { console.error('[Analysis] fetch failed', e); setAnalysis({ _error: String(e) }) }).finally(() => setAnalyzingTxs(false))
           }
         })
       }
@@ -830,6 +832,16 @@ export default function DashboardPage() {
                         {nudge}
                       </div>
                     ))}
+                    {analysis._error && (
+                      <div style={{ fontSize: 11, color: 'rgba(245,158,11,0.7)', padding: '6px 12px', background: 'rgba(245,158,11,0.06)', borderRadius: 8 }}>
+                        {analysis._error}{analysis._tx_count !== undefined ? ` (${analysis._tx_count} txs reached engine)` : ''}
+                      </div>
+                    )}
+                    {!analysis._error && !analysis.income && !analysis.rent && !analysis.cars?.length && !analysis.utilities?.length && !analysis.insurances?.length && (
+                      <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', padding: '6px 12px' }}>
+                        Not enough recurring data yet — Maslo needs 2+ months of history to detect bills reliably.
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
