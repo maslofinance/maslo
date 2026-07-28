@@ -298,7 +298,7 @@ export default function DashboardPage() {
   const [vaults, setVaults] = useState<Vault[]>([])
   const [profile, setProfile] = useState<Profile | null>(null)
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([])
-  const [fcAccounts, setFcAccounts] = useState<{ id: string; stripe_account_id: string; name: string; current_balance: number | null; available_balance: number | null }[]>([])
+  const [fcAccounts, setFcAccounts] = useState<{ id: string; stripe_account_id: string; name: string; current_balance: number | null; available_balance: number | null; subtype: string | null }[]>([])
   const [transactions, setTransactions] = useState<{ id: string; date: number; amount: number; description: string; category: string | null }[]>([])
   const [loadingTxs, setLoadingTxs] = useState(false)
   const [userEmail, setUserEmail] = useState('')
@@ -320,7 +320,7 @@ export default function DashboardPage() {
         supabase.from('profiles').select('email, monthly_income, budget_style, notification_tone, onboarding_complete, onboarding_step').eq('id', uid).single(),
         supabase.from('vaults').select('*, is_locked, whitelisted_merchant').eq('user_id', uid).eq('is_active', true).order('priority'),
         supabase.from('bank_accounts').select('name, current_balance, available_balance').eq('user_id', uid).eq('is_active', true),
-        (supabase as any).from('stripe_fc_accounts').select('id, stripe_account_id, name, current_balance, available_balance').eq('user_id', uid).eq('is_active', true),
+        (supabase as any).from('stripe_fc_accounts').select('id, stripe_account_id, name, current_balance, available_balance, subtype').eq('user_id', uid).eq('is_active', true),
       ])
 
       const p = profileRes.data
@@ -335,12 +335,13 @@ export default function DashboardPage() {
       setFcAccounts(accounts)
       setChecking(false)
 
-      // Fetch transactions for all linked FC accounts (non-blocking)
-      if (accounts.length > 0) {
+      // Fetch transactions from checking accounts only (not savings)
+      const checkingOnly = accounts.filter((a: any) => a.subtype === 'checking')
+      if (checkingOnly.length > 0) {
         setLoadingTxs(true)
         const token = session.access_token
         Promise.all(
-          accounts.map((a: any) =>
+          checkingOnly.map((a: any) =>
             fetch(`/api/stripe/financial-connections/transactions?account_id=${a.stripe_account_id}`, {
               headers: { 'Authorization': `Bearer ${token}` },
             }).then(r => r.json()).catch(() => ({ transactions: [] }))
@@ -402,7 +403,7 @@ export default function DashboardPage() {
         body: JSON.stringify({ userId: uid, accountId }),
       })
       // Refresh FC accounts
-      const { data: fresh } = await (supabase as any).from('stripe_fc_accounts').select('id, stripe_account_id, name, current_balance, available_balance').eq('user_id', uid!).eq('is_active', true)
+      const { data: fresh } = await (supabase as any).from('stripe_fc_accounts').select('id, stripe_account_id, name, current_balance, available_balance, subtype').eq('user_id', uid!).eq('is_active', true)
       setFcAccounts(fresh ?? [])
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Failed to link account')
@@ -484,6 +485,10 @@ export default function DashboardPage() {
 
   // ── Computed stats ──────────────────────────────────────────────
   const allLinkedAccounts = [...bankAccounts, ...fcAccounts]
+  const checkingAccounts = fcAccounts.filter(a => a.subtype === 'checking')
+  const savingsAccounts  = fcAccounts.filter(a => a.subtype === 'savings')
+  const checkingBalance  = checkingAccounts.reduce((s, a) => s + (a.current_balance ?? 0), 0)
+  const savingsBalance   = savingsAccounts.reduce((s, a) => s + (a.current_balance ?? 0), 0)
   const totalBalance = allLinkedAccounts.reduce((s, a) => s + (a.current_balance ?? 0), 0)
   const monthlyIncome = profile?.monthly_income ?? 0
   const vaultsByCategory = (cat: VaultCategory) => vaults.filter(v => v.category === cat)
@@ -494,7 +499,9 @@ export default function DashboardPage() {
   const today = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }).toUpperCase()
 
   const totalLinked = allLinkedAccounts.length
-  const institutionName = totalLinked > 0 ? `${totalLinked} account${totalLinked > 1 ? 's' : ''} linked` : 'No bank linked'
+  const institutionName = checkingAccounts.length > 0
+    ? `${checkingAccounts.length} checking · ${savingsAccounts.length} savings`
+    : totalLinked > 0 ? `${totalLinked} account${totalLinked > 1 ? 's' : ''} linked` : 'No bank linked'
 
   return (
     <div style={{ minHeight: '100vh', background: '#07071a', paddingBottom: 80 }}>
@@ -559,32 +566,50 @@ export default function DashboardPage() {
 
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 32, flexWrap: 'wrap' as const }}>
             <div>
-              <p style={{ margin: '0 0 10px', fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.38)', letterSpacing: '0.09em' }}>
-                TOTAL CASH BALANCE
+              {/* Checking = Cash Available */}
+              <p style={{ margin: '0 0 6px', fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.38)', letterSpacing: '0.09em' }}>
+                CASH AVAILABLE
               </p>
               <div style={{ fontSize: 48, fontWeight: 900, color: '#f8f8ff', letterSpacing: '-2px', lineHeight: 1 }}>
-                {totalLinked === 0 ? '—' : allLinkedAccounts.some(a => a.current_balance !== null) ? fmtExact(totalBalance) : '—'}
+                {checkingAccounts.length === 0 ? '—' : checkingAccounts.some(a => a.current_balance !== null) ? fmtExact(checkingBalance) : '—'}
               </div>
-              {totalLinked === 0 ? (
-                <p style={{ margin: '8px 0 0', fontSize: 12, color: 'rgba(255,255,255,0.3)' }}>
-                  Link a bank account to see your balance
-                </p>
-              ) : (
-                <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  {fcAccounts.map(a => (
-                    <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <span style={{ fontSize: 12, color: a.current_balance === null ? 'rgba(245,158,11,0.8)' : 'rgba(255,255,255,0.4)' }}>
-                        {a.name}{a.current_balance === null ? ' · balance unavailable' : ''}
-                      </span>
-                      <button
-                        onClick={() => handleUnlink(a.id, a.name)}
-                        disabled={unlinking === a.id}
-                        style={{ fontSize: 10, color: 'rgba(239,68,68,0.5)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontWeight: 600 }}
-                      >
-                        {unlinking === a.id ? 'unlinking…' : 'unlink'}
-                      </button>
-                    </div>
-                  ))}
+              <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                {checkingAccounts.length === 0 && (
+                  <p style={{ margin: 0, fontSize: 12, color: 'rgba(255,255,255,0.3)' }}>Link a checking account to see your balance</p>
+                )}
+                {checkingAccounts.map(a => (
+                  <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 12, color: a.current_balance === null ? 'rgba(245,158,11,0.7)' : 'rgba(255,255,255,0.4)' }}>
+                      {a.name}{a.current_balance === null ? ' · balance unavailable' : ''}
+                    </span>
+                    <button onClick={() => handleUnlink(a.id, a.name)} disabled={unlinking === a.id}
+                      style={{ fontSize: 10, color: 'rgba(239,68,68,0.5)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontWeight: 600 }}>
+                      {unlinking === a.id ? 'unlinking…' : 'unlink'}
+                    </button>
+                  </div>
+                ))}
+              </div>
+
+              {/* Savings — separate row */}
+              {savingsAccounts.length > 0 && (
+                <div style={{ marginTop: 20 }}>
+                  <p style={{ margin: '0 0 4px', fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.38)', letterSpacing: '0.09em' }}>
+                    SAVINGS
+                  </p>
+                  <div style={{ fontSize: 28, fontWeight: 800, color: '#a78bfa', letterSpacing: '-1px' }}>
+                    {savingsAccounts.some(a => a.current_balance !== null) ? fmtExact(savingsBalance) : '—'}
+                  </div>
+                  <div style={{ marginTop: 4, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                    {savingsAccounts.map(a => (
+                      <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)' }}>{a.name}</span>
+                        <button onClick={() => handleUnlink(a.id, a.name)} disabled={unlinking === a.id}
+                          style={{ fontSize: 10, color: 'rgba(239,68,68,0.5)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontWeight: 600 }}>
+                          {unlinking === a.id ? 'unlinking…' : 'unlink'}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
