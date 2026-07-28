@@ -778,7 +778,7 @@ export default function DashboardPage() {
               ) : (
                 <div style={{ maxHeight: 420, overflowY: 'auto' as const }}>
                   {transactions.map(tx => {
-                    const isCredit = tx.amount < 0
+                    const isCredit = tx.amount > 0
                     const dollars = Math.abs(tx.amount) / 100
                     const date = new Date(tx.date * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
                     return (
