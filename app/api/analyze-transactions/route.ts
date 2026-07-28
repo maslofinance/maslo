@@ -28,36 +28,40 @@ export async function POST(request: Request) {
     const allTxs: RawFCTransaction[] = []
 
     for (const acct of accounts) {
-      await (stripe as any).financialConnections.accounts.subscribe(acct.stripe_account_id, {
-        features: ['transactions'],
-      }).catch(() => {})
-      await (stripe as any).financialConnections.accounts.refresh(acct.stripe_account_id, {
-        features: ['transactions'],
-      }).catch(() => {})
+      try {
+        await (stripe as any).financialConnections.accounts.subscribe(acct.stripe_account_id, {
+          features: ['transactions'],
+        }).catch(() => {})
+        await (stripe as any).financialConnections.accounts.refresh(acct.stripe_account_id, {
+          features: ['transactions'],
+        }).catch(() => {})
 
-      let hasMore = true
-      let startingAfter: string | undefined
-      while (hasMore) {
-        const page: any = await stripe.financialConnections.transactions.list({
-          account: acct.stripe_account_id,
-          limit: 100,
-          ...(startingAfter ? { starting_after: startingAfter } : {}),
-          transacted_at: { gte: cutoff },
-        })
-        for (const t of page.data) {
-          allTxs.push({
-            id: t.id,
-            date: t.transacted_at,
-            // Stripe FC: positive=credit, negative=debit. lib expects opposite: negative=credit, positive=expense
-            amount: -(t.amount / 100),
-            description: t.description ?? '',
-            category: t.category ?? undefined,
-            subcategory: t.subcategory ?? undefined,
+        let hasMore = true
+        let startingAfter: string | undefined
+        while (hasMore) {
+          const page: any = await stripe.financialConnections.transactions.list({
+            account: acct.stripe_account_id,
+            limit: 100,
+            ...(startingAfter ? { starting_after: startingAfter } : {}),
+            transacted_at: { gte: cutoff },
           })
+          for (const t of page.data) {
+            allTxs.push({
+              id: t.id,
+              date: t.transacted_at,
+              // Stripe FC: positive=credit, negative=debit. lib expects opposite: negative=credit, positive=expense
+              amount: -(t.amount / 100),
+              description: t.description ?? '',
+              category: t.category ?? undefined,
+              subcategory: t.subcategory ?? undefined,
+            })
+          }
+          hasMore = page.has_more
+          if (page.has_more && page.data.length > 0) startingAfter = page.data[page.data.length - 1].id
+          else hasMore = false
         }
-        hasMore = page.has_more
-        if (page.has_more && page.data.length > 0) startingAfter = page.data[page.data.length - 1].id
-        else hasMore = false
+      } catch (e: any) {
+        console.warn(`[Analyze] skipping account ${acct.stripe_account_id}:`, e?.message)
       }
     }
 
