@@ -46,7 +46,8 @@ export async function POST(request: Request) {
           allTxs.push({
             id: t.id,
             date: t.transacted_at,
-            amount: t.amount / 100,
+            // Stripe FC: positive=credit, negative=debit. lib expects opposite: negative=credit, positive=expense
+            amount: -(t.amount / 100),
             description: t.description ?? '',
             category: t.category ?? undefined,
             subcategory: t.subcategory ?? undefined,

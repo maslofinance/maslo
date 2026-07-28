@@ -266,7 +266,7 @@ export function analyzeBankData(txs: RawFCTransaction[]): BankPrefillResult {
 
   // Sort: keyword matches first, then by avg amount (largest = most likely primary income)
   const incomeCandidates = [...incomeGroups.entries()]
-    .filter(([, g]) => g.amounts.length >= 2)
+    .filter(([, g]) => g.amounts.length >= 1) // 1 hit enough if keyword is strong
     .sort((a, b) => {
       if (b[1].signals !== a[1].signals) return b[1].signals - a[1].signals
       return avgAmount(b[1].amounts) - avgAmount(a[1].amounts)
