@@ -5,10 +5,6 @@ import Header from './components/Header'
 export const metadata: Metadata = {
   title: 'Maslo — Financial Fitness',
   description: 'The gastric bypass of banking apps.',
-  icons: {
-    icon: '/logo.png',
-    apple: '/logo.png',
-  },
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

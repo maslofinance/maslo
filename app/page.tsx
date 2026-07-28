@@ -312,7 +312,20 @@ export default function DashboardPage() {
   const [analyzingTxs, setAnalyzingTxs] = useState(false)
   const [rentNudgeAnswer, setRentNudgeAnswer] = useState<Record<number, 'yes' | 'no' | null>>({})
   const [rentNudgeManual, setRentNudgeManual] = useState<Record<number, string>>({})
-  const [incomeAnswers, setIncomeAnswers] = useState<Record<number, 'yes' | 'no'>>({})
+  const [incomeAnswers, setIncomeAnswers] = useState<Record<number, 'yes' | 'no'>>(() => {
+    try { return JSON.parse(localStorage.getItem('maslo_income_answers') ?? '{}') } catch { return {} }
+  })
+  const [rentNudgeAnswersPersisted, setRentNudgeAnswersPersisted] = useState<Record<number, 'yes' | 'no' | null>>(() => {
+    try { return JSON.parse(localStorage.getItem('maslo_rent_answers') ?? '{}') } catch { return {} }
+  })
+
+  const setIncomeAnswersPersisted = (updater: (prev: Record<number, 'yes' | 'no'>) => Record<number, 'yes' | 'no'>) => {
+    setIncomeAnswers(prev => {
+      const next = updater(prev)
+      try { localStorage.setItem('maslo_income_answers', JSON.stringify(next)) } catch {}
+      return next
+    })
+  }
 
   // ── Auth + data load ────────────────────────────────────────────
   useEffect(() => {
@@ -655,6 +668,23 @@ export default function DashboardPage() {
               {linkingMore ? '⟳ Linking…' : '+ Link Account'}
             </button>
             <button
+              onClick={async () => {
+                if (!confirm('Delete all vaults except rent? This cannot be undone.')) return
+                const { data: { session: s } } = await supabase.auth.getSession()
+                await fetch('/api/vaults/clear-except-rent', { method: 'POST', headers: { 'Authorization': `Bearer ${s?.access_token}` } })
+                const { data: updatedVaults } = await supabase.from('vaults').select('id, name, icon, current_balance, target_amount, due_day, lock_type, category, description, priority, is_locked, whitelisted_merchant').eq('user_id', s!.user.id).eq('is_active', true).order('priority', { ascending: true })
+                if (updatedVaults) setVaults(updatedVaults as unknown as Vault[])
+              }}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px',
+                background: 'rgba(245,158,11,0.07)', border: '1px solid rgba(245,158,11,0.22)',
+                borderRadius: 99, cursor: 'pointer',
+                fontSize: 11, fontWeight: 700, letterSpacing: '0.04em', color: '#f59e0b',
+              }}
+            >
+              🗑 Clear Vaults
+            </button>
+            <button
               onClick={handleReset} disabled={resetting}
               style={{
                 display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px',
@@ -849,8 +879,8 @@ export default function DashboardPage() {
                           {!answered && (
                             <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
                               <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginRight: 4, alignSelf: 'center' }}>Is this income?</div>
-                              <button onClick={() => setIncomeAnswers(p => ({ ...p, [i]: 'yes' }))} style={{ padding: '4px 14px', background: 'rgba(16,185,129,0.3)', border: 'none', borderRadius: 99, color: '#10b981', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>Yes</button>
-                              <button onClick={() => setIncomeAnswers(p => ({ ...p, [i]: 'no' }))} style={{ padding: '4px 14px', background: 'rgba(255,255,255,0.06)', border: 'none', borderRadius: 99, color: 'rgba(255,255,255,0.4)', fontSize: 11, cursor: 'pointer' }}>No</button>
+                              <button onClick={() => setIncomeAnswersPersisted(p => ({ ...p, [i]: 'yes' }))} style={{ padding: '4px 14px', background: 'rgba(16,185,129,0.3)', border: 'none', borderRadius: 99, color: '#10b981', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>Yes</button>
+                              <button onClick={() => setIncomeAnswersPersisted(p => ({ ...p, [i]: 'no' }))} style={{ padding: '4px 14px', background: 'rgba(255,255,255,0.06)', border: 'none', borderRadius: 99, color: 'rgba(255,255,255,0.4)', fontSize: 11, cursor: 'pointer' }}>No</button>
                             </div>
                           )}
                         </div>
