@@ -301,6 +301,7 @@ export default function DashboardPage() {
   const [fcAccounts, setFcAccounts] = useState<{ id: string; stripe_account_id: string; name: string; current_balance: number | null; available_balance: number | null; subtype: string | null }[]>([])
   const [transactions, setTransactions] = useState<{ id: string; date: number; amount: number; description: string; category: string | null }[]>([])
   const [loadingTxs, setLoadingTxs] = useState(false)
+  const [syncing, setSyncing] = useState(false)
   const [userEmail, setUserEmail] = useState('')
   const [linkingMore, setLinkingMore] = useState(false)
   const [unlinking, setUnlinking] = useState<string | null>(null)
@@ -334,6 +335,20 @@ export default function DashboardPage() {
       const accounts = fcRes.data ?? []
       setFcAccounts(accounts)
       setChecking(false)
+
+      // Sync balances in background, then refresh FC accounts from DB
+      setSyncing(true)
+      fetch('/api/stripe/financial-connections/sync', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${session.access_token}` },
+      }).then(async () => {
+        const { data: refreshed } = await (supabase as any)
+          .from('stripe_fc_accounts')
+          .select('id, stripe_account_id, name, current_balance, available_balance, subtype')
+          .eq('user_id', uid)
+          .eq('is_active', true)
+        if (refreshed) setFcAccounts(refreshed)
+      }).finally(() => setSyncing(false))
 
       // Fetch transactions from checking accounts only (not savings)
       const checkingOnly = accounts.filter((a: any) => a.subtype === 'checking')
@@ -530,6 +545,33 @@ export default function DashboardPage() {
               </span>
             </div>
             <button
+              onClick={async () => {
+                setSyncing(true)
+                const { data } = await supabase.auth.getSession()
+                const token = data.session?.access_token
+                const uid = data.session?.user.id
+                await fetch('/api/stripe/financial-connections/sync', {
+                  method: 'POST', headers: { 'Authorization': `Bearer ${token}` },
+                })
+                const { data: refreshed } = await (supabase as any)
+                  .from('stripe_fc_accounts')
+                  .select('id, stripe_account_id, name, current_balance, available_balance, subtype')
+                  .eq('user_id', uid).eq('is_active', true)
+                if (refreshed) setFcAccounts(refreshed)
+                setSyncing(false)
+              }}
+              disabled={syncing}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px',
+                background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)',
+                borderRadius: 99, cursor: syncing ? 'wait' : 'pointer',
+                fontSize: 11, fontWeight: 700, letterSpacing: '0.04em',
+                color: syncing ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.4)',
+              }}
+            >
+              {syncing ? '⟳ Syncing…' : '⟳ Sync'}
+            </button>
+            <button
               onClick={handleLinkAnother} disabled={linkingMore}
               style={{
                 display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px',
@@ -567,8 +609,9 @@ export default function DashboardPage() {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 32, flexWrap: 'wrap' as const }}>
             <div>
               {/* Checking = Cash Available */}
-              <p style={{ margin: '0 0 6px', fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.38)', letterSpacing: '0.09em' }}>
+              <p style={{ margin: '0 0 6px', fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.38)', letterSpacing: '0.09em', display: 'flex', alignItems: 'center', gap: 8 }}>
                 CASH AVAILABLE
+                {syncing && <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)', fontWeight: 400 }}>syncing…</span>}
               </p>
               <div style={{ fontSize: 48, fontWeight: 900, color: '#f8f8ff', letterSpacing: '-2px', lineHeight: 1 }}>
                 {checkingAccounts.length === 0 ? '—' : checkingAccounts.some(a => a.current_balance !== null) ? fmtExact(checkingBalance) : '—'}
