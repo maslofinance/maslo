@@ -206,20 +206,19 @@ export default function OnboardingPage() {
           }))
           const found = analyzeBankData(rawTxs)
           setFindings(found)
-          if (found.income) {
-            // bank-prefill returns monthly equivalent in value — convert back to per-paycheck
-            // so the confirm card shows "1,250 / weekly" and submit multiplies correctly
+          if (found.incomes?.length > 0) {
+            const primary = found.incomes[0]
             const freqMult: Record<string, number> = { weekly: 52/12, biweekly: 26/12, semimonthly: 2, monthly: 1 }
-            const perCheck = Math.round(parseFloat(found.income.value) / (freqMult[found.income.freq] ?? 1))
+            const perCheck = Math.round(parseFloat(primary.value) / (freqMult[primary.freq] ?? 1))
             setIncome(String(perCheck))
-            setIncomeFreq(found.income.freq)
+            setIncomeFreq(primary.freq)
           }
           if (found.rent) setRent(found.rent.value)
           setCarEdits(found.cars.map(c => c.amount))
           setUtilEdits(found.utilities.map(u => u.amount))
           setInsEdits(found.insurances.map(i => i.amount))
         } else {
-          setFindings({ utilities: [], insurances: [], cars: [], nudges: [] })
+          setFindings({ incomes: [], utilities: [], insurances: [], cars: [], nudges: [] })
           setIncomeFreq('monthly')
         }
 
@@ -439,7 +438,7 @@ export default function OnboardingPage() {
               </p>
             </div>
 
-            {!findings.income && !findings.rent && findings.cars.length === 0 && findings.utilities.length === 0 && findings.insurances.length === 0 && (
+            {!findings.incomes?.length && !findings.rent && findings.cars.length === 0 && findings.utilities.length === 0 && findings.insurances.length === 0 && (
               <div style={{ ...S.card, padding: 24, marginBottom: 20, textAlign: 'center' as const }}>
                 <div style={{ fontSize: 36, marginBottom: 12 }}>🏦</div>
                 <p style={{ fontSize: 15, fontWeight: 700, color: '#f8f8ff', margin: '0 0 8px' }}>
@@ -452,7 +451,7 @@ export default function OnboardingPage() {
             )}
 
             {/* Income */}
-            {findings.income ? (
+            {findings.incomes?.length > 0 ? (
               (() => {
                 const freqLabel: Record<string, string> = { weekly: 'weekly', biweekly: 'bi-weekly', semimonthly: '1st & 15th', monthly: 'monthly' }
                 const mult: Record<Freq, number> = { weekly: 52/12, biweekly: 26/12, semimonthly: 2, monthly: 1 }
@@ -463,8 +462,8 @@ export default function OnboardingPage() {
                     value={income}
                     onChange={setIncome}
                     unit={`/ ${freqLabel[incomeFreq] ?? incomeFreq}`}
-                    confidence={findings.income.confidence}
-                    source={findings.income.source}
+                    confidence={findings.incomes[0].confidence}
+                    source={findings.incomes[0].source}
                     description={`We see $${Math.round(parseFloat(income || '0')).toLocaleString()} coming in ${freqLabel[incomeFreq] ?? incomeFreq}. Monthly equivalent: $${monthly.toLocaleString()}/mo`}
                   />
                 )
@@ -542,12 +541,12 @@ export default function OnboardingPage() {
             {/* Nudges */}
             {findings.nudges.map((nudge, i) => (
               <div key={i} style={{ padding: '12px 16px', background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)', borderRadius: 10, fontSize: 13, color: '#f59e0b', marginBottom: 10, lineHeight: 1.5 }}>
-                💬 {nudge}
+                💬 We noticed a recurring charge of ${nudge.amount}/mo — {nudge.text}
               </div>
             ))}
 
             <button onClick={() => setStep(4)} style={{ ...S.btn, marginTop: 12 }}>
-              {findings.income || findings.rent || findings.cars.length > 0 ? 'These look right →' : 'Continue →'}
+              {findings.incomes?.length > 0 || findings.rent || findings.cars.length > 0 ? 'These look right →' : 'Continue →'}
             </button>
           </div>
         )}

@@ -44,14 +44,14 @@ export interface CarPrefillEntry {
 }
 
 export interface BankPrefillResult {
-  income?:      PrefillField & { freq: Freq }
-  rent?:        PrefillField
+  incomes:      Array<PrefillField & { freq: Freq }>
+  rent?:        PrefillField & { due_day: string }
   utilities:    PrefillEntry[]
   insurances:   PrefillEntry[]
   cars:         CarPrefillEntry[]
   groceries?:   PrefillField
   gasStations?: PrefillField
-  nudges:       string[]
+  nudges:       Array<{ text: string; amount: string; due_day: string }>
 }
 
 // ── Step 1: Merchant Normalization — strip bank noise from raw descriptions ───
@@ -245,11 +245,10 @@ export function analyzeBankData(txs: RawFCTransaction[]): BankPrefillResult {
   // Normalize dates first
   const normalized = txs.map(tx => ({ ...tx, date: normalizeDate(tx.date) }))
 
-  const result: BankPrefillResult = { utilities: [], insurances: [], cars: [], nudges: [] }
+  const result: BankPrefillResult = { incomes: [], utilities: [], insurances: [], cars: [], nudges: [] }
 
   // ── INCOME ──────────────────────────────────────────────────────────────────
-  // Credits (negative amounts) > $300. Stripe 'transfer' category = likely income.
-  const credits = normalized.filter(tx => tx.amount < 0 && Math.abs(tx.amount) > 300)
+  const credits = normalized.filter(tx => tx.amount < 0 && Math.abs(tx.amount) > 50)
   const incomeGroups = new Map<string, { amounts: number[]; dates: string[]; signals: number }>()
 
   for (const tx of credits) {
@@ -259,34 +258,30 @@ export function analyzeBankData(txs: RawFCTransaction[]): BankPrefillResult {
     const g = incomeGroups.get(key)!
     g.amounts.push(Math.abs(tx.amount))
     g.dates.push(tx.date)
-    // Count how many signals we have: keyword match + Stripe category
     if (matches(cleaned, PATTERNS.income)) g.signals = Math.max(g.signals, 2)
     else if (tx.category === 'transfer') g.signals = Math.max(g.signals, 1)
   }
 
-  // Sort: keyword matches first, then by avg amount (largest = most likely primary income)
-  const incomeCandidates = [...incomeGroups.entries()]
-    .filter(([, g]) => g.amounts.length >= 1) // 1 hit enough if keyword is strong
+  const multipliers: Record<Freq, number> = { weekly: 52/12, biweekly: 26/12, semimonthly: 2, monthly: 1 }
+
+  result.incomes = [...incomeGroups.entries()]
+    .filter(([, g]) => g.amounts.length >= 1)
     .sort((a, b) => {
       if (b[1].signals !== a[1].signals) return b[1].signals - a[1].signals
       return avgAmount(b[1].amounts) - avgAmount(a[1].amounts)
     })
-
-  if (incomeCandidates.length > 0) {
-    const [key, g] = incomeCandidates[0]
-    const freq     = detectFreq(g.dates)
-    const perCheck = avgAmount(g.amounts)
-    const multipliers: Record<Freq, number> = { weekly: 52/12, biweekly: 26/12, semimonthly: 2, monthly: 1 }
-    const monthly  = perCheck * multipliers[freq]
-    const confident = isConsistentAmount(g.amounts, 0.08) && g.amounts.length >= 3 && g.signals >= 1
-
-    result.income = {
-      value:      String(Math.round(monthly)),
-      confidence: confident ? 'high' : 'medium',
-      source:     `${key.trim()} · ${g.amounts.length} deposits avg $${Math.round(perCheck)}`,
-      freq,
-    }
-  }
+    .map(([key, g]) => {
+      const freq     = detectFreq(g.dates)
+      const perCheck = avgAmount(g.amounts)
+      const monthly  = perCheck * multipliers[freq]
+      const confident = isConsistentAmount(g.amounts, 0.08) && g.amounts.length >= 3 && g.signals >= 1
+      return {
+        value:      monthly.toFixed(2),
+        confidence: confident ? 'high' as Confidence : 'medium' as Confidence,
+        source:     `${key.trim()} · ${g.amounts.length} deposit${g.amounts.length > 1 ? 's' : ''} avg $${perCheck.toFixed(2)}`,
+        freq,
+      }
+    })
 
   // ── RENT ────────────────────────────────────────────────────────────────────
   // Stripe 'bill_payment' + rent keywords OR large consistent monthly charge
@@ -309,26 +304,26 @@ export function analyzeBankData(txs: RawFCTransaction[]): BankPrefillResult {
     const g = rentByKeyword.sort((a, b) => avgAmount(b.amounts) - avgAmount(a.amounts))[0]
     const avg = avgAmount(g.amounts)
     result.rent = {
-      value:      String(Math.round(avg)),
+      value:      avg.toFixed(2),
+      due_day:    mostCommonDueDay(g.dates),
       confidence: isConsistentAmount(g.amounts, 0.02) && g.amounts.length >= 2 ? 'high' : 'medium',
       source:     `${g.cleanedDesc.slice(0, 32)} · ${g.amounts.length} charges`,
     }
   } else if (rentByCategory.length > 0) {
-    // Stripe said 'bill_payment' but no rent keyword — surface as medium confidence
     const g = rentByCategory.sort((a, b) => avgAmount(b.amounts) - avgAmount(a.amounts))[0]
     const avg = avgAmount(g.amounts)
     if (avg > 400) {
       result.rent = {
-        value:      String(Math.round(avg)),
+        value:      avg.toFixed(2),
+        due_day:    mostCommonDueDay(g.dates),
         confidence: 'medium',
-        source:     `${g.cleanedDesc.slice(0, 32)} · ${g.amounts.length} charges (category: bill payment)`,
+        source:     `${g.cleanedDesc.slice(0, 32)} · ${g.amounts.length} charges`,
       }
     }
   } else if (largeRecurring.length > 0) {
-    // Fallback: largest consistent recurring charge — likely rent
     const g = largeRecurring.sort((a, b) => avgAmount(b.amounts) - avgAmount(a.amounts))[0]
     const avg = avgAmount(g.amounts)
-    result.nudges.push(`We noticed a recurring charge of ~$${Math.round(avg)}/mo — is that your rent?`)
+    result.nudges.push({ text: 'is that your rent?', amount: avg.toFixed(2), due_day: mostCommonDueDay(g.dates) })
   }
 
   // ── UTILITIES ───────────────────────────────────────────────────────────────
@@ -347,10 +342,10 @@ export function analyzeBankData(txs: RawFCTransaction[]): BankPrefillResult {
       const avg = avgAmount(g.amounts)
       result.utilities.push({
         type:       def.type,
-        amount:     String(Math.round(avg)),
+        amount:     avg.toFixed(2),
         due_day:    mostCommonDueDay(g.dates),
         confidence: isConsistentAmount(g.amounts, 0.20) ? 'high' : 'medium',
-        source:     `${g.cleanedDesc.slice(0, 32)} · ${g.amounts.length} charges avg $${Math.round(avg)}`,
+        source:     `${g.cleanedDesc.slice(0, 32)} · ${g.amounts.length} charges avg $${avg.toFixed(2)}`,
       })
     }
   }
@@ -371,7 +366,7 @@ export function analyzeBankData(txs: RawFCTransaction[]): BankPrefillResult {
       const avg = avgAmount(g.amounts)
       result.insurances.push({
         type,
-        amount:     String(Math.round(avg)),
+        amount:     avg.toFixed(2),
         due_day:    mostCommonDueDay(g.dates),
         confidence: isConsistentAmount(g.amounts, 0.03) ? 'high' : 'medium',
         source:     `${g.cleanedDesc.slice(0, 32)} · ${g.amounts.length} charges`,
@@ -387,7 +382,7 @@ export function analyzeBankData(txs: RawFCTransaction[]): BankPrefillResult {
     const type: 'loan' | 'lease' = /lease/.test(g.cleanedDesc) ? 'lease' : 'loan'
     result.cars.push({
       type,
-      amount:     String(Math.round(avg)),
+      amount:     avg.toFixed(2),
       due_day:    mostCommonDueDay(g.dates),
       lender:     g.cleanedDesc.split(' ').slice(0, 3).join(' '),
       confidence: isConsistentAmount(g.amounts, 0.02) ? 'high' : 'medium',
@@ -405,7 +400,7 @@ export function analyzeBankData(txs: RawFCTransaction[]): BankPrefillResult {
   if (grocTxs.length >= 4) {
     const monthlyAvg = grocTxs.reduce((s, t) => s + t.amount, 0) / 6
     result.groceries = {
-      value:      String(Math.round(monthlyAvg)),
+      value:      monthlyAvg.toFixed(2),
       confidence: 'medium',
       source:     `${grocTxs.length} grocery charges over 180 days`,
     }
@@ -421,7 +416,7 @@ export function analyzeBankData(txs: RawFCTransaction[]): BankPrefillResult {
   if (gasTxs.length >= 3) {
     const monthlyAvg = gasTxs.reduce((s, t) => s + t.amount, 0) / 6
     result.gasStations = {
-      value:      String(Math.round(monthlyAvg)),
+      value:      monthlyAvg.toFixed(2),
       confidence: 'medium',
       source:     `${gasTxs.length} gas station charges over 180 days`,
     }

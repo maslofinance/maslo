@@ -310,6 +310,8 @@ export default function DashboardPage() {
   const [merchantInput, setMerchantInput] = useState<Record<string, string>>({})
   const [analysis, setAnalysis] = useState<any>(null)
   const [analyzingTxs, setAnalyzingTxs] = useState(false)
+  const [rentNudgeAnswer, setRentNudgeAnswer] = useState<Record<number, 'yes' | 'no' | null>>({})
+  const [rentNudgeManual, setRentNudgeManual] = useState<Record<number, string>>({})
 
   // ── Auth + data load ────────────────────────────────────────────
   useEffect(() => {
@@ -782,62 +784,93 @@ export default function DashboardPage() {
                   </div>
                 ) : analysis && (
                   <div style={{ padding: '12px 20px 16px', display: 'flex', flexDirection: 'column' as const, gap: 8 }}>
-                    {analysis.income && (
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: 'rgba(16,185,129,0.06)', borderRadius: 10 }}>
+                    {/* Income — one row per source */}
+                    {analysis.incomes?.map((inc: any, i: number) => (
+                      <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: 'rgba(16,185,129,0.06)', borderRadius: 10 }}>
                         <div>
                           <div style={{ fontSize: 12, fontWeight: 700, color: '#10b981' }}>Income</div>
-                          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>{analysis.income.source}</div>
+                          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>{inc.source}</div>
                         </div>
-                        <div style={{ fontSize: 14, fontWeight: 800, color: '#10b981' }}>${Number(analysis.income.value).toLocaleString()}/mo</div>
+                        <div style={{ fontSize: 14, fontWeight: 800, color: '#10b981' }}>{fmtExact(Number(inc.value))}/mo</div>
                       </div>
-                    )}
+                    ))}
+                    {/* Rent */}
                     {analysis.rent && (
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: 'rgba(255,255,255,0.04)', borderRadius: 10 }}>
                         <div>
                           <div style={{ fontSize: 12, fontWeight: 700, color: '#f8f8ff' }}>Rent</div>
-                          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>{analysis.rent.source}</div>
+                          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>due ~{ordinal(Number(analysis.rent.due_day))} · {analysis.rent.source}</div>
                         </div>
-                        <div style={{ fontSize: 14, fontWeight: 800, color: '#f8f8ff' }}>${Number(analysis.rent.value).toLocaleString()}/mo</div>
+                        <div style={{ fontSize: 14, fontWeight: 800, color: '#f8f8ff' }}>{fmtExact(Number(analysis.rent.value))}/mo</div>
                       </div>
                     )}
+                    {/* Car payments */}
                     {analysis.cars?.map((car: any, i: number) => (
                       <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: 'rgba(255,255,255,0.04)', borderRadius: 10 }}>
                         <div>
                           <div style={{ fontSize: 12, fontWeight: 700, color: '#f8f8ff' }}>Car {car.type === 'lease' ? 'Lease' : 'Payment'}</div>
-                          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>{car.lender}</div>
+                          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>due ~{ordinal(Number(car.due_day))} · {car.lender}</div>
                         </div>
-                        <div style={{ fontSize: 14, fontWeight: 800, color: '#f8f8ff' }}>${Number(car.amount).toLocaleString()}/mo</div>
+                        <div style={{ fontSize: 14, fontWeight: 800, color: '#f8f8ff' }}>{fmtExact(Number(car.amount))}/mo</div>
                       </div>
                     ))}
+                    {/* Utilities */}
                     {analysis.utilities?.map((u: any, i: number) => (
                       <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: 'rgba(255,255,255,0.04)', borderRadius: 10 }}>
                         <div>
                           <div style={{ fontSize: 12, fontWeight: 700, color: '#f8f8ff' }}>{u.type}</div>
-                          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>{u.source}</div>
+                          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>due ~{ordinal(Number(u.due_day))} · {u.source}</div>
                         </div>
-                        <div style={{ fontSize: 14, fontWeight: 800, color: '#f8f8ff' }}>${Number(u.amount).toLocaleString()}/mo</div>
+                        <div style={{ fontSize: 14, fontWeight: 800, color: '#f8f8ff' }}>{fmtExact(Number(u.amount))}/mo</div>
                       </div>
                     ))}
+                    {/* Insurance */}
                     {analysis.insurances?.map((ins: any, i: number) => (
                       <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: 'rgba(255,255,255,0.04)', borderRadius: 10 }}>
                         <div>
                           <div style={{ fontSize: 12, fontWeight: 700, color: '#f8f8ff' }}>{ins.type} Insurance</div>
-                          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>{ins.source}</div>
+                          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>due ~{ordinal(Number(ins.due_day))} · {ins.source}</div>
                         </div>
-                        <div style={{ fontSize: 14, fontWeight: 800, color: '#f8f8ff' }}>${Number(ins.amount).toLocaleString()}/mo</div>
+                        <div style={{ fontSize: 14, fontWeight: 800, color: '#f8f8ff' }}>{fmtExact(Number(ins.amount))}/mo</div>
                       </div>
                     ))}
-                    {analysis.nudges?.map((nudge: string, i: number) => (
-                      <div key={i} style={{ fontSize: 11, color: 'rgba(196,181,253,0.6)', padding: '6px 12px', background: 'rgba(124,58,237,0.06)', borderRadius: 8 }}>
-                        {nudge}
-                      </div>
+                    {/* Rent nudges — Yes/No prompt */}
+                    {analysis.nudges?.map((nudge: any, i: number) => (
+                      rentNudgeAnswer[i] === 'yes' ? (
+                        <div key={i} style={{ padding: '8px 12px', background: 'rgba(255,255,255,0.04)', borderRadius: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <div>
+                            <div style={{ fontSize: 12, fontWeight: 700, color: '#f8f8ff' }}>Rent</div>
+                            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>due ~{ordinal(Number(nudge.due_day))} · confirmed</div>
+                          </div>
+                          <div style={{ fontSize: 14, fontWeight: 800, color: '#f8f8ff' }}>{fmtExact(Number(nudge.amount))}/mo</div>
+                        </div>
+                      ) : rentNudgeAnswer[i] === 'no' ? (
+                        <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                          <input
+                            placeholder="Enter rent amount"
+                            value={rentNudgeManual[i] ?? ''}
+                            onChange={e => setRentNudgeManual(p => ({ ...p, [i]: e.target.value }))}
+                            style={{ flex: 1, padding: '8px 12px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, color: '#f8f8ff', fontSize: 13, outline: 'none' }}
+                          />
+                        </div>
+                      ) : (
+                        <div key={i} style={{ padding: '10px 12px', background: 'rgba(124,58,237,0.06)', borderRadius: 10 }}>
+                          <div style={{ fontSize: 11, color: 'rgba(196,181,253,0.8)', marginBottom: 8 }}>
+                            We noticed a recurring charge of {fmtExact(Number(nudge.amount))}/mo — {nudge.text}
+                          </div>
+                          <div style={{ display: 'flex', gap: 8 }}>
+                            <button onClick={() => setRentNudgeAnswer(p => ({ ...p, [i]: 'yes' }))} style={{ padding: '5px 16px', background: 'rgba(124,58,237,0.6)', border: 'none', borderRadius: 99, color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>Yes</button>
+                            <button onClick={() => setRentNudgeAnswer(p => ({ ...p, [i]: 'no' }))} style={{ padding: '5px 16px', background: 'rgba(255,255,255,0.06)', border: 'none', borderRadius: 99, color: 'rgba(255,255,255,0.5)', fontSize: 12, cursor: 'pointer' }}>No</button>
+                          </div>
+                        </div>
+                      )
                     ))}
                     {analysis._error && (
                       <div style={{ fontSize: 11, color: 'rgba(245,158,11,0.7)', padding: '6px 12px', background: 'rgba(245,158,11,0.06)', borderRadius: 8 }}>
                         {analysis._error}{analysis._tx_count !== undefined ? ` (${analysis._tx_count} txs reached engine)` : ''}
                       </div>
                     )}
-                    {!analysis._error && !analysis.income && !analysis.rent && !analysis.cars?.length && !analysis.utilities?.length && !analysis.insurances?.length && (
+                    {!analysis._error && !analysis.incomes?.length && !analysis.rent && !analysis.cars?.length && !analysis.utilities?.length && !analysis.insurances?.length && !analysis.nudges?.length && (
                       <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', padding: '6px 12px' }}>
                         Not enough recurring data yet — Maslo needs 2+ months of history to detect bills reliably.
                       </div>
