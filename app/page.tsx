@@ -358,16 +358,23 @@ export default function DashboardPage() {
       // Sync balances → fund vaults from checking balance → refresh UI
       setSyncing(true)
       const authHeader = { 'Authorization': `Bearer ${session.access_token}` }
+
+      const reloadBalances = async () => {
+        const { data: refreshed } = await (supabase as any)
+          .from('stripe_fc_accounts')
+          .select('id, stripe_account_id, name, current_balance, available_balance, subtype')
+          .eq('user_id', uid)
+          .eq('is_active', true)
+        if (refreshed) setFcAccounts(refreshed)
+        return refreshed
+      }
+
       fetch('/api/stripe/financial-connections/sync', { method: 'POST', headers: authHeader })
         .then(async () => {
-          // Re-read updated FC balances
-          const { data: refreshed } = await (supabase as any)
-            .from('stripe_fc_accounts')
-            .select('id, stripe_account_id, name, current_balance, available_balance, subtype')
-            .eq('user_id', uid)
-            .eq('is_active', true)
-          if (refreshed) setFcAccounts(refreshed)
+          // First read — may still be stale while Stripe processes async refresh
+          await reloadBalances()
 
+          // Second read after 5s — catches webhook-updated balance from Stripe
           // Allocate checking balance across vaults in priority order
           await fetch('/api/vaults/fund', { method: 'POST', headers: authHeader })
 
@@ -379,6 +386,19 @@ export default function DashboardPage() {
             .eq('is_active', true)
             .order('priority', { ascending: true })
           if (updatedVaults) setVaults(updatedVaults as unknown as Vault[])
+
+          // Second read after 5s — catches the async Stripe balance refresh completing
+          setTimeout(async () => {
+            await reloadBalances()
+            await fetch('/api/vaults/fund', { method: 'POST', headers: authHeader })
+            const { data: lateVaults } = await supabase
+              .from('vaults')
+              .select('id, name, icon, current_balance, target_amount, due_day, lock_type, category, description, priority, is_locked, whitelisted_merchant')
+              .eq('user_id', uid)
+              .eq('is_active', true)
+              .order('priority', { ascending: true })
+            if (lateVaults) setVaults(lateVaults as unknown as Vault[])
+          }, 5000)
         }).finally(() => setSyncing(false))
 
       // Fetch transactions — checking accounts first, fall back to all accounts if none typed
