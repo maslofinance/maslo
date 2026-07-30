@@ -598,9 +598,11 @@ export default function DashboardPage() {
   const allLinkedAccounts = [...bankAccounts, ...fcAccounts]
   const checkingAccounts = fcAccounts.filter(a => a.subtype === 'checking')
   const savingsAccounts  = fcAccounts.filter(a => a.subtype === 'savings')
-  const checkingBalance  = checkingAccounts.reduce((s, a) => s + (a.current_balance ?? 0), 0)
-  const savingsBalance   = savingsAccounts.reduce((s, a) => s + (a.current_balance ?? 0), 0)
-  const totalBalance = allLinkedAccounts.reduce((s, a) => s + (a.current_balance ?? 0), 0)
+  const displayBal = (a: { available_balance: number | null; current_balance: number | null }) =>
+    a.available_balance ?? a.current_balance ?? 0
+  const checkingBalance  = checkingAccounts.reduce((s, a) => s + displayBal(a), 0)
+  const savingsBalance   = savingsAccounts.reduce((s, a) => s + displayBal(a), 0)
+  const totalBalance = allLinkedAccounts.reduce((s, a) => s + displayBal(a), 0)
   const confirmedIncome30d = analysis?.incomes
     ? (analysis.incomes as any[]).reduce((sum: number, inc: any, i: number) => {
         return incomeAnswers[i] === 'yes' ? sum + (inc.last30DayTotal ?? 0) : sum
@@ -735,7 +737,7 @@ export default function DashboardPage() {
                 {syncing && <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)', fontWeight: 400 }}>syncing…</span>}
               </p>
               <div style={{ fontSize: 48, fontWeight: 900, color: '#f8f8ff', letterSpacing: '-2px', lineHeight: 1 }}>
-                {checkingAccounts.length === 0 ? '—' : checkingAccounts.some(a => a.current_balance !== null) ? fmtExact(checkingBalance) : '—'}
+                {checkingAccounts.length === 0 ? '—' : checkingAccounts.some(a => a.available_balance !== null || a.current_balance !== null) ? fmtExact(checkingBalance) : '—'}
               </div>
               <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 3 }}>
                 {checkingAccounts.length === 0 && (
@@ -743,8 +745,8 @@ export default function DashboardPage() {
                 )}
                 {checkingAccounts.map(a => (
                   <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ fontSize: 12, color: a.current_balance === null ? 'rgba(245,158,11,0.7)' : 'rgba(255,255,255,0.4)' }}>
-                      {a.name}{a.current_balance === null ? ' · balance unavailable' : ''}
+                    <span style={{ fontSize: 12, color: (a.available_balance === null && a.current_balance === null) ? 'rgba(245,158,11,0.7)' : 'rgba(255,255,255,0.4)' }}>
+                      {a.name}{(a.available_balance === null && a.current_balance === null) ? ' · balance unavailable' : ''}
                     </span>
                     <button onClick={() => handleUnlink(a.id, a.name)} disabled={unlinking === a.id}
                       style={{ fontSize: 10, color: 'rgba(239,68,68,0.5)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontWeight: 600 }}>
@@ -761,7 +763,7 @@ export default function DashboardPage() {
                     SAVINGS
                   </p>
                   <div style={{ fontSize: 28, fontWeight: 800, color: '#a78bfa', letterSpacing: '-1px' }}>
-                    {savingsAccounts.some(a => a.current_balance !== null) ? fmtExact(savingsBalance) : '—'}
+                    {savingsAccounts.some(a => a.available_balance !== null || a.current_balance !== null) ? fmtExact(savingsBalance) : '—'}
                   </div>
                   <div style={{ marginTop: 4, display: 'flex', flexDirection: 'column', gap: 3 }}>
                     {savingsAccounts.map(a => (

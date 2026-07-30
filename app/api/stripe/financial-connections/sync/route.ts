@@ -49,12 +49,17 @@ export async function POST(request: Request) {
           return { id: row.id, status: 'inactive' }
         }
 
-        const currentBalance = account?.balance?.current
-          ? Object.values(account.balance.current as Record<string, number>)[0] / 100
+        const bal = account?.balance as any
+        console.log(`[Sync] ${row.stripe_account_id} raw balance:`, JSON.stringify(bal))
+
+        const currentBalance = bal?.current
+          ? Object.values(bal.current as Record<string, number>)[0] / 100
           : null
-        const availableBalance = (account?.balance as any)?.cash?.available
-          ? Object.values((account.balance as any).cash.available as Record<string, number>)[0] / 100
-          : null
+        const availableBalance = bal?.cash?.available
+          ? Object.values(bal.cash.available as Record<string, number>)[0] / 100
+          : bal?.current
+            ? Object.values(bal.current as Record<string, number>)[0] / 100
+            : null
 
         console.log(`[Sync] ${row.stripe_account_id} → current: ${currentBalance}, available: ${availableBalance}`)
 
