@@ -29,16 +29,23 @@ export async function POST(request: Request) {
         // Kick off balance refresh
         await (stripe as any).financialConnections.accounts.refresh(row.stripe_account_id, {
           features: ['balance'],
-        }).catch(() => {}) // non-fatal if already refreshing
+        }).catch(() => {})
 
-        // Retrieve with expanded balance
-        const account = await stripe.financialConnections.accounts.retrieve(
-          row.stripe_account_id,
-          { expand: ['balance'] }
-        )
+        // Poll Stripe until balance_refresh.status === 'succeeded' (max 20s)
+        let account: any = null
+        const deadline = Date.now() + 20000
+        while (Date.now() < deadline) {
+          account = await stripe.financialConnections.accounts.retrieve(
+            row.stripe_account_id,
+            { expand: ['balance'] }
+          )
+          const refreshStatus = (account as any).balance_refresh?.status
+          console.log(`[Sync] ${row.stripe_account_id} balance_refresh.status: ${refreshStatus}`)
+          if (refreshStatus === 'succeeded' || refreshStatus === 'failed' || !refreshStatus) break
+          await new Promise(r => setTimeout(r, 2000))
+        }
 
-        if (account.status === 'inactive') {
-          console.log(`[Sync] Account ${row.stripe_account_id} is inactive — skipping balance update`)
+        if (!account || account.status === 'inactive') {
           return { id: row.id, status: 'inactive' }
         }
 
@@ -48,6 +55,8 @@ export async function POST(request: Request) {
         const availableBalance = (account?.balance as any)?.cash?.available
           ? Object.values((account.balance as any).cash.available as Record<string, number>)[0] / 100
           : null
+
+        console.log(`[Sync] ${row.stripe_account_id} → current: ${currentBalance}, available: ${availableBalance}`)
 
         await supabase
           .from('stripe_fc_accounts')
