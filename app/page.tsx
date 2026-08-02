@@ -98,7 +98,7 @@ function ordinal(n: number) {
 
 // ─── Vault Row ───────────────────────────────────────────────────────────────
 
-function VaultRow({ vault, meta, mounted, merchantInput, onLockToggle, onConfirmLock, onMerchantChange, locking }: {
+function VaultRow({ vault, meta, mounted, merchantInput, onLockToggle, onConfirmLock, onMerchantChange, locking, transactions }: {
   vault: Vault
   meta: SectionMeta
   mounted: boolean
@@ -107,10 +107,20 @@ function VaultRow({ vault, meta, mounted, merchantInput, onLockToggle, onConfirm
   onConfirmLock: (v: Vault) => void
   onMerchantChange: (id: string, val: string) => void
   locking: boolean
+  transactions: { id: string; date: number; amount: number; description: string; category: string | null }[]
 }) {
   const pct = vault.target_amount > 0 ? Math.min(vault.current_balance / vault.target_amount, 1) : 0
   const badge = getBadge(pct, meta.key)
   const [hovered, setHovered] = useState(false)
+  const [expanded, setExpanded] = useState(false)
+
+  // Match transactions to this vault by keyword
+  const vaultKeywords = vault.name.toLowerCase().split(/\s+/)
+  const relatedTxs = transactions.filter(tx => {
+    const desc = tx.description.toLowerCase()
+    return vaultKeywords.some(kw => kw.length > 3 && desc.includes(kw)) ||
+      (vault.whitelisted_merchant && desc.includes(vault.whitelisted_merchant.toLowerCase()))
+  }).slice(0, 10)
 
   return (
     <div
@@ -123,7 +133,10 @@ function VaultRow({ vault, meta, mounted, merchantInput, onLockToggle, onConfirm
         transition: 'background 0.15s',
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
+      <div
+        onClick={() => setExpanded(e => !e)}
+        style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10, cursor: 'pointer' }}
+      >
         <div style={{
           width: 38, height: 38, flexShrink: 0,
           background: `${meta.color}18`, border: `1px solid ${meta.color}28`,
@@ -153,6 +166,7 @@ function VaultRow({ vault, meta, mounted, merchantInput, onLockToggle, onConfirm
             {badge.label} · {Math.round(pct * 100)}%
           </div>
         </div>
+        <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.2)', marginLeft: 6, transition: 'transform 0.2s', display: 'inline-block', transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)' }}>▼</span>
       </div>
 
       <div style={{ height: 4, background: 'rgba(255,255,255,0.07)', borderRadius: 99, overflow: 'hidden' }}>
@@ -165,6 +179,30 @@ function VaultRow({ vault, meta, mounted, merchantInput, onLockToggle, onConfirm
           boxShadow: pct >= 1 ? '0 0 8px rgba(16,185,129,0.4)' : undefined,
         }} />
       </div>
+
+      {/* History panel */}
+      {expanded && (
+        <div style={{ marginTop: 12, marginBottom: 4, borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 12 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,0.3)', letterSpacing: '0.08em', marginBottom: 8 }}>VAULT HISTORY</div>
+          {relatedTxs.length === 0 ? (
+            <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.2)', fontStyle: 'italic' }}>No matching transactions found yet.</div>
+          ) : (
+            relatedTxs.map(tx => (
+              <div key={tx.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
+                <div>
+                  <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.7)' }}>{tx.description}</div>
+                  <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)', marginTop: 1 }}>
+                    {new Date(tx.date * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                  </div>
+                </div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: tx.amount < 0 ? '#f87171' : '#34d399' }}>
+                  {tx.amount < 0 ? '-' : '+'}${Math.abs(tx.amount).toFixed(2)}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      )}
 
       {/* Lock UI */}
       {merchantInput !== undefined ? (
@@ -227,13 +265,14 @@ function VaultRow({ vault, meta, mounted, merchantInput, onLockToggle, onConfirm
 
 // ─── Section Card ─────────────────────────────────────────────────────────────
 
-function SectionCard({ meta, vaults, mounted, merchantInputs, onLockToggle, onConfirmLock, onMerchantChange, lockingVault }: {
+function SectionCard({ meta, vaults, mounted, merchantInputs, onLockToggle, onConfirmLock, onMerchantChange, lockingVault, transactions }: {
   meta: SectionMeta; vaults: Vault[]; mounted: boolean
   merchantInputs: Record<string, string>
   onLockToggle: (v: Vault) => void
   onConfirmLock: (v: Vault) => void
   onMerchantChange: (id: string, val: string) => void
   lockingVault: string | null
+  transactions: { id: string; date: number; amount: number; description: string; category: string | null }[]
 }) {
   const totalBal = vaults.reduce((s, v) => s + v.current_balance, 0)
   const totalTgt = vaults.reduce((s, v) => s + v.target_amount, 0)
@@ -280,6 +319,7 @@ function SectionCard({ meta, vaults, mounted, merchantInputs, onLockToggle, onCo
             onConfirmLock={onConfirmLock}
             onMerchantChange={onMerchantChange}
             locking={lockingVault === v.id}
+            transactions={transactions}
           />
         ))
       )}
@@ -354,6 +394,16 @@ export default function DashboardPage() {
       const accounts = fcRes.data ?? []
       setFcAccounts(accounts)
       setChecking(false)
+
+      // Bootstrap vault structure if missing vaults
+      fetch('/api/vaults/setup', { method: 'POST', headers: { 'Authorization': `Bearer ${session.access_token}` } })
+        .then(r => r.json())
+        .then(async result => {
+          if (result.created > 0) {
+            const { data: freshVaults } = await supabase.from('vaults').select('id, name, icon, current_balance, target_amount, due_day, lock_type, category, description, priority, is_locked, whitelisted_merchant').eq('user_id', uid).eq('is_active', true).order('priority', { ascending: true })
+            if (freshVaults) setVaults(freshVaults as unknown as Vault[])
+          }
+        }).catch(() => {})
 
       // Sync balances → fund vaults from checking balance → refresh UI
       setSyncing(true)
@@ -834,6 +884,7 @@ export default function DashboardPage() {
                   }
                 }}
                 lockingVault={lockingVault}
+                transactions={transactions}
               />
             ))}
           </div>
