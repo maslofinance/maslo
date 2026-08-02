@@ -41,6 +41,19 @@ export async function POST(request: Request) {
       ? Object.values(account.balance.cash.available as Record<string, number>)[0] / 100
       : null
 
+    // Deactivate any old accounts for the same institution+subtype (re-link scenario)
+    const institution = account?.institution_name ?? null
+    const subtype = account?.subcategory ?? null
+    if (institution) {
+      await supabase
+        .from('stripe_fc_accounts')
+        .update({ is_active: false })
+        .eq('user_id', userId)
+        .eq('institution_name', institution)
+        .eq('subtype', subtype)
+        .neq('stripe_account_id', accountId)
+    }
+
     // Check if a row already exists for this user+account so we can update vs insert
     const { data: existing } = await supabase
       .from('stripe_fc_accounts')

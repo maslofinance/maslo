@@ -27,9 +27,12 @@ export async function POST(request: Request) {
     const results = await Promise.all(accounts.map(async (row) => {
       try {
         // Kick off balance refresh
-        await (stripe as any).financialConnections.accounts.refresh(row.stripe_account_id, {
+        const refreshResult = await (stripe as any).financialConnections.accounts.refresh(row.stripe_account_id, {
           features: ['balance'],
-        }).catch(() => {})
+        }).catch((e: any) => {
+          console.warn(`[Sync] refresh failed for ${row.stripe_account_id}:`, e?.message)
+          return null
+        })
 
         // Poll Stripe until balance_refresh.status === 'succeeded' (max 20s)
         let account: any = null
@@ -46,6 +49,8 @@ export async function POST(request: Request) {
         }
 
         if (!account || account.status === 'inactive') {
+          console.warn(`[Sync] account ${row.stripe_account_id} is inactive — marking inactive in DB`)
+          await supabase.from('stripe_fc_accounts').update({ is_active: false }).eq('id', row.id)
           return { id: row.id, status: 'inactive' }
         }
 
