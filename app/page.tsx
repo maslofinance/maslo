@@ -98,7 +98,7 @@ function ordinal(n: number) {
 
 // ─── Vault Row ───────────────────────────────────────────────────────────────
 
-function VaultRow({ vault, meta, mounted, merchantInput, onLockToggle, onConfirmLock, onMerchantChange, locking, transactions }: {
+function VaultRow({ vault, meta, mounted, merchantInput, onLockToggle, onConfirmLock, onMerchantChange, locking, transactions, onDelete }: {
   vault: Vault
   meta: SectionMeta
   mounted: boolean
@@ -108,6 +108,7 @@ function VaultRow({ vault, meta, mounted, merchantInput, onLockToggle, onConfirm
   onMerchantChange: (id: string, val: string) => void
   locking: boolean
   transactions: { id: string; date: number; amount: number; description: string; category: string | null }[]
+  onDelete: (v: Vault) => void
 }) {
   const pct = vault.target_amount > 0 ? Math.min(vault.current_balance / vault.target_amount, 1) : 0
   const badge = getBadge(pct, meta.key)
@@ -244,19 +245,30 @@ function VaultRow({ vault, meta, mounted, merchantInput, onLockToggle, onConfirm
               🔒 {vault.whitelisted_merchant}
             </span>
           )}
-          <button
-            onClick={() => onLockToggle(vault)}
-            disabled={locking}
-            style={{
-              marginLeft: 'auto', padding: '5px 12px',
-              background: vault.is_locked ? 'rgba(239,68,68,0.08)' : 'rgba(124,58,237,0.08)',
-              border: `1px solid ${vault.is_locked ? 'rgba(239,68,68,0.25)' : 'rgba(124,58,237,0.25)'}`,
-              borderRadius: 99, color: vault.is_locked ? '#f87171' : '#c4b5fd',
-              fontSize: 11, fontWeight: 700, cursor: 'pointer', letterSpacing: '0.03em',
-            }}
-          >
-            {vault.is_locked ? 'Unlock' : '+ Lock'}
-          </button>
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+            <button
+              onClick={() => onLockToggle(vault)}
+              disabled={locking}
+              style={{
+                padding: '5px 12px',
+                background: vault.is_locked ? 'rgba(239,68,68,0.08)' : 'rgba(124,58,237,0.08)',
+                border: `1px solid ${vault.is_locked ? 'rgba(239,68,68,0.25)' : 'rgba(124,58,237,0.25)'}`,
+                borderRadius: 99, color: vault.is_locked ? '#f87171' : '#c4b5fd',
+                fontSize: 11, fontWeight: 700, cursor: 'pointer', letterSpacing: '0.03em',
+              }}
+            >
+              {vault.is_locked ? 'Unlock' : '+ Lock'}
+            </button>
+            <button
+              onClick={e => { e.stopPropagation(); onDelete(vault) }}
+              title="Delete vault"
+              style={{
+                padding: '5px 9px', background: 'rgba(239,68,68,0.06)',
+                border: '1px solid rgba(239,68,68,0.15)', borderRadius: 99,
+                color: 'rgba(239,68,68,0.45)', fontSize: 11, cursor: 'pointer',
+              }}
+            >✕</button>
+          </div>
         </div>
       )}
     </div>
@@ -265,7 +277,7 @@ function VaultRow({ vault, meta, mounted, merchantInput, onLockToggle, onConfirm
 
 // ─── Section Card ─────────────────────────────────────────────────────────────
 
-function SectionCard({ meta, vaults, mounted, merchantInputs, onLockToggle, onConfirmLock, onMerchantChange, lockingVault, transactions }: {
+function SectionCard({ meta, vaults, mounted, merchantInputs, onLockToggle, onConfirmLock, onMerchantChange, lockingVault, transactions, onDelete, onAdd }: {
   meta: SectionMeta; vaults: Vault[]; mounted: boolean
   merchantInputs: Record<string, string>
   onLockToggle: (v: Vault) => void
@@ -273,10 +285,25 @@ function SectionCard({ meta, vaults, mounted, merchantInputs, onLockToggle, onCo
   onMerchantChange: (id: string, val: string) => void
   lockingVault: string | null
   transactions: { id: string; date: number; amount: number; description: string; category: string | null }[]
+  onDelete: (v: Vault) => void
+  onAdd: (category: VaultCategory, name: string, amount: number, dueDay: number | null, icon: string) => void
 }) {
   const totalBal = vaults.reduce((s, v) => s + v.current_balance, 0)
   const totalTgt = vaults.reduce((s, v) => s + v.target_amount, 0)
   const overallPct = totalTgt > 0 ? Math.min(totalBal / totalTgt, 1) : 0
+  const [adding, setAdding] = useState(false)
+  const [newName, setNewName] = useState('')
+  const [newAmount, setNewAmount] = useState('')
+  const [newDueDay, setNewDueDay] = useState('')
+  const [newIcon, setNewIcon] = useState('💰')
+
+  const handleAdd = () => {
+    const amount = parseFloat(newAmount) || 0
+    const due = parseInt(newDueDay) || null
+    if (!newName.trim()) return
+    onAdd(meta.key, newName.trim(), amount, due, newIcon)
+    setAdding(false); setNewName(''); setNewAmount(''); setNewDueDay(''); setNewIcon('💰')
+  }
 
   return (
     <div style={{ background: '#0d0d24', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 18, overflow: 'hidden' }}>
@@ -320,8 +347,59 @@ function SectionCard({ meta, vaults, mounted, merchantInputs, onLockToggle, onCo
             onMerchantChange={onMerchantChange}
             locking={lockingVault === v.id}
             transactions={transactions}
+            onDelete={onDelete}
           />
         ))
+      )}
+
+      {/* Add vault form */}
+      {adding ? (
+        <div style={{ padding: '14px 20px', borderTop: '1px solid rgba(255,255,255,0.06)', display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input
+              placeholder="Icon (emoji)"
+              value={newIcon}
+              onChange={e => setNewIcon(e.target.value)}
+              style={{ width: 52, padding: '8px 10px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, color: '#f8f8ff', fontSize: 16, outline: 'none', textAlign: 'center' }}
+            />
+            <input
+              autoFocus
+              placeholder="Vault name"
+              value={newName}
+              onChange={e => setNewName(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleAdd()}
+              style={{ flex: 1, padding: '8px 12px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, color: '#f8f8ff', fontSize: 13, outline: 'none' }}
+            />
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input
+              placeholder="Monthly amount ($)"
+              value={newAmount}
+              onChange={e => setNewAmount(e.target.value)}
+              type="number"
+              style={{ flex: 1, padding: '8px 12px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, color: '#f8f8ff', fontSize: 13, outline: 'none' }}
+            />
+            <input
+              placeholder="Due day (optional)"
+              value={newDueDay}
+              onChange={e => setNewDueDay(e.target.value)}
+              type="number"
+              min="1" max="31"
+              style={{ width: 130, padding: '8px 12px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, color: '#f8f8ff', fontSize: 13, outline: 'none' }}
+            />
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={handleAdd} disabled={!newName.trim()} style={{ flex: 1, padding: '8px', background: 'rgba(124,58,237,0.7)', border: 'none', borderRadius: 8, color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer', opacity: !newName.trim() ? 0.4 : 1 }}>Add Vault</button>
+            <button onClick={() => setAdding(false)} style={{ padding: '8px 14px', background: 'none', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, color: 'rgba(255,255,255,0.4)', fontSize: 12, cursor: 'pointer' }}>Cancel</button>
+          </div>
+        </div>
+      ) : (
+        <div style={{ padding: '10px 20px', borderTop: '1px solid rgba(255,255,255,0.04)' }}>
+          <button
+            onClick={() => setAdding(true)}
+            style={{ width: '100%', padding: '8px', background: 'none', border: '1px dashed rgba(255,255,255,0.1)', borderRadius: 8, color: 'rgba(255,255,255,0.25)', fontSize: 12, cursor: 'pointer', letterSpacing: '0.04em' }}
+          >+ Add Vault</button>
+        </div>
       )}
     </div>
   )
@@ -572,6 +650,43 @@ export default function DashboardPage() {
       setLinkingMore(false)
     }
   }, [])
+
+  const handleDeleteVault = useCallback(async (vault: Vault) => {
+    if (!confirm(`Delete "${vault.name}" vault?`)) return
+    const { data } = await supabase.auth.getSession()
+    const token = data.session?.access_token
+    await supabase.from('vaults').update({ is_active: false }).eq('id', vault.id)
+    setVaults(prev => prev.filter(v => v.id !== vault.id))
+    // Also remove any allocation rules
+    await fetch('/api/allocation-rules/remove', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({ vault_id: vault.id }),
+    }).catch(() => {})
+  }, [])
+
+  const handleAddVault = useCallback(async (category: VaultCategory, name: string, amount: number, dueDay: number | null, icon: string) => {
+    const { data } = await supabase.auth.getSession()
+    const uid = data.session?.user.id
+    if (!uid) return
+    const maxPriority = vaults.reduce((m, v) => Math.max(m, (v as any).priority ?? 0), 0)
+    const { data: inserted } = await (supabase as any).from('vaults').insert({
+      user_id: uid,
+      name,
+      icon,
+      category,
+      target_amount: amount,
+      current_balance: 0,
+      due_day: dueDay,
+      lock_type: category === 'lifestyle' ? 'flexible' : 'soft_lock',
+      priority: maxPriority + 1,
+      is_active: true,
+      is_locked: false,
+      description: '',
+      whitelisted_merchant: null,
+    }).select().single()
+    if (inserted) setVaults(prev => [...prev, inserted as unknown as Vault])
+  }, [vaults])
 
   const handleLockToggle = useCallback(async (vault: Vault) => {
     const { data } = await supabase.auth.getSession()
@@ -885,6 +1000,8 @@ export default function DashboardPage() {
                 }}
                 lockingVault={lockingVault}
                 transactions={transactions}
+                onDelete={handleDeleteVault}
+                onAdd={handleAddVault}
               />
             ))}
           </div>
